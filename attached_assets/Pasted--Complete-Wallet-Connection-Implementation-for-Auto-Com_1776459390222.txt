@@ -1,0 +1,1863 @@
+# Complete Wallet Connection Implementation for Auto‑Compounder Vault
+
+## 1. Overview
+
+This document provides a complete, production‑ready wallet connection system for the veMEZO Auto‑Compounder Vault. The implementation integrates **Mezo Passport**—a package built on RainbowKit that adds Bitcoin wallet support alongside standard EVM wallets—with **wagmi** and **viem** for robust wallet management across both ecosystems. The system handles all connection states, network switching, error recovery, and provides a polished user experience that satisfies the hackathon's Mezo Integration requirement (30% of judging).
+
+The wallet connection architecture consists of the following layers:
+1. **Configuration Layer**: Wagmi/Mezo Passport configuration with chain definitions and connectors
+2. **Provider Layer**: React Context providers wrapping the entire application
+3. **Hook Layer**: Custom hooks for connection state, account management, and balance queries
+4. **Component Layer**: Connect button, account modal, network switcher, and error displays
+5. **Utility Layer**: Helper functions for address formatting, balance conversion, and error handling
+
+All code is written in TypeScript and follows best practices for type safety, error handling, and performance optimization.
+
+
+## 2. Environment Variables & Constants
+
+### 2.1 `.env.local`
+
+```env
+# WalletConnect Project ID (required for WalletConnect support)
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_project_id_here
+
+# Mezo Network Configuration
+NEXT_PUBLIC_CHAIN_ID=31611
+NEXT_PUBLIC_RPC_URL=https://rpc.test.mezo.org
+NEXT_PUBLIC_CHAIN_NAME="Mezo Testnet"
+NEXT_PUBLIC_NATIVE_CURRENCY_SYMBOL=BTC
+NEXT_PUBLIC_NATIVE_CURRENCY_DECIMALS=18
+NEXT_PUBLIC_BLOCK_EXPLORER_URL=https://explorer.test.mezo.org
+
+# Optional: Mainnet Configuration
+NEXT_PUBLIC_MAINNET_CHAIN_ID=31612
+NEXT_PUBLIC_MAINNET_RPC_URL=https://rpc-http.mezo.boar.network
+```
+
+### 2.2 `lib/constants/chains.ts`
+
+```typescript
+import { defineChain } from 'viem';
+
+// Mezo Testnet (Matsnet) Configuration
+export const mezoTestnet = defineChain({
+  id: 31611,
+  name: 'Mezo Testnet',
+  nativeCurrency: {
+    name: 'Bitcoin',
+    symbol: 'BTC',
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: ['https://rpc.test.mezo.org'],
+      webSocket: ['wss://rpc-ws.test.mezo.org'],
+    },
+    public: {
+      http: ['https://rpc.test.mezo.org'],
+      webSocket: ['wss://rpc-ws.test.mezo.org'],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: 'Mezo Testnet Explorer',
+      url: 'https://explorer.test.mezo.org',
+    },
+  },
+  testnet: true,
+});
+
+// Mezo Mainnet Configuration
+export const mezoMainnet = defineChain({
+  id: 31612,
+  name: 'Mezo',
+  nativeCurrency: {
+    name: 'Bitcoin',
+    symbol: 'BTC',
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: ['https://rpc-http.mezo.boar.network'],
+      webSocket: ['wss://rpc-ws.mezo.boar.network'],
+    },
+    public: {
+      http: ['https://rpc-http.mezo.boar.network'],
+      webSocket: ['wss://rpc-ws.mezo.boar.network'],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: 'Mezo Explorer',
+      url: 'https://explorer.mezo.org',
+    },
+  },
+  testnet: false,
+});
+
+// Default chain for the application (use testnet for hackathon)
+export const DEFAULT_CHAIN = mezoTestnet;
+
+// Supported chains array
+export const SUPPORTED_CHAINS = [mezoTestnet, mezoMainnet] as const;
+```
+
+### 2.3 `lib/constants/addresses.ts`
+
+```typescript
+// Contract addresses on Mezo Testnet
+export const CONTRACTS = {
+  VAULT: (process.env.NEXT_PUBLIC_VAULT_ADDRESS || '0x0000000000000000000000000000000000000000') as `0x${string}`,
+  VEMEZO: (process.env.NEXT_PUBLIC_VEMEZO_ADDRESS || '0x0000000000000000000000000000000000000000') as `0x${string}`,
+  GAUGE_CONTROLLER: (process.env.NEXT_PUBLIC_GAUGE_CONTROLLER_ADDRESS || '0x0000000000000000000000000000000000000000') as `0x${string}`,
+  MEZO_TOKEN: (process.env.NEXT_PUBLIC_MEZO_TOKEN_ADDRESS || '0x0000000000000000000000000000000000000000') as `0x${string}`,
+  MUSD_TOKEN: (process.env.NEXT_PUBLIC_MUSD_TOKEN_ADDRESS || '0x0000000000000000000000000000000000000000') as `0x${string}`,
+} as const;
+```
+
+
+## 3. Wagmi Configuration with Mezo Passport
+
+The Mezo Passport package extends RainbowKit with Bitcoin wallet support, enabling users to connect with wallets like Xverse and Unisat alongside MetaMask and WalletConnect. It integrates with viem and wagmi for streamlined wallet management across both ecosystems.
+
+### 3.1 `lib/wagmi/config.ts`
+
+```typescript
+import { http, createConfig, cookieStorage, createStorage } from 'wagmi';
+import { mezoTestnet, mezoMainnet } from '@/lib/constants/chains';
+import { getDefaultConfig } from '@rainbow-me/rainbowkit';
+import { getMezoPassportConfig } from '@mezo-org/passport';
+
+// Ensure WalletConnect Project ID is available
+const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
+if (!projectId) {
+  throw new Error('NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is required');
+}
+
+// Create wagmi configuration with Mezo Passport integration
+// getMezoPassportConfig() adds Bitcoin wallet support (Xverse, Unisat, etc.)
+export const config = getDefaultConfig({
+  appName: 'veMEZO Auto-Compounder',
+  projectId,
+  chains: [mezoTestnet, mezoMainnet],
+  ssr: true,
+  transports: {
+    [mezoTestnet.id]: http(mezoTestnet.rpcUrls.default.http[0]),
+    [mezoMainnet.id]: http(mezoMainnet.rpcUrls.default.http[0]),
+  },
+  // Enable cookie storage for SSR persistence
+  storage: createStorage({
+    storage: cookieStorage,
+  }),
+  ...getMezoPassportConfig(),
+});
+
+// Type for the config
+export type Config = typeof config;
+
+// Helper to get the current chain configuration
+export function getChainConfig(chainId: number) {
+  return [mezoTestnet, mezoMainnet].find((c) => c.id === chainId);
+}
+```
+
+### 3.2 Alternative Manual Configuration (Without getDefaultConfig)
+
+If you need more granular control over connectors, you can manually configure wagmi:
+
+```typescript
+// lib/wagmi/config-manual.ts
+import { http, createConfig } from 'wagmi';
+import { mezoTestnet, mezoMainnet } from '@/lib/constants/chains';
+import { injected, walletConnect, metaMask, safe } from 'wagmi/connectors';
+
+const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID!;
+
+export const manualConfig = createConfig({
+  chains: [mezoTestnet, mezoMainnet],
+  connectors: [
+    injected(), // Browser-injected wallets (MetaMask, Brave, etc.)
+    walletConnect({ projectId }), // WalletConnect for mobile wallets
+    metaMask(), // Explicit MetaMask connector
+    safe(), // Safe multisig wallet
+  ],
+  transports: {
+    [mezoTestnet.id]: http(mezoTestnet.rpcUrls.default.http[0]),
+    [mezoMainnet.id]: http(mezoMainnet.rpcUrls.default.http[0]),
+  },
+});
+```
+
+**Important**: For the hackathon, use the `getDefaultConfig` approach with `getMezoPassportConfig()` as it automatically adds Bitcoin wallet support and is the recommended method by Mezo.
+
+
+## 4. Application Providers
+
+The provider hierarchy wraps the entire application with wagmi, RainbowKit, and TanStack Query for state management.
+
+### 4.1 `app/providers.tsx`
+
+```tsx
+'use client';
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { WagmiProvider } from 'wagmi';
+import { RainbowKitProvider } from '@rainbow-me/rainbowkit';
+import { useState, useEffect } from 'react';
+import { Toaster } from 'sonner';
+import { config } from '@/lib/wagmi/config';
+import { customRainbowTheme } from '@/lib/wagmi/theme';
+import { ConnectionErrorBoundary } from '@/components/wallet/ConnectionErrorBoundary';
+import '@rainbow-me/rainbowkit/styles.css';
+
+interface ProvidersProps {
+  children: React.ReactNode;
+}
+
+export function Providers({ children }: ProvidersProps) {
+  const [mounted, setMounted] = useState(false);
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 30_000, // 30 seconds
+            gcTime: 5 * 60_000, // 5 minutes (formerly cacheTime)
+            refetchOnWindowFocus: false,
+            retry: 1,
+            retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+          },
+          mutations: {
+            retry: 1,
+            retryDelay: 1000,
+          },
+        },
+      })
+  );
+
+  // Prevent hydration mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return null;
+  }
+
+  return (
+    <WagmiProvider config={config}>
+      <QueryClientProvider client={queryClient}>
+        <RainbowKitProvider
+          theme={customRainbowTheme}
+          modalSize="compact"
+          appInfo={{
+            appName: 'veMEZO Auto-Compounder',
+            learnMoreUrl: 'https://mezo.org/docs',
+          }}
+        >
+          <ConnectionErrorBoundary>
+            {children}
+            <Toaster
+              position="top-right"
+              theme="dark"
+              toastOptions={{
+                style: {
+                  background: '#0A0B0D',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  color: '#FFFFFF',
+                },
+                duration: 5000,
+              }}
+            />
+          </ConnectionErrorBoundary>
+        </RainbowKitProvider>
+      </QueryClientProvider>
+    </WagmiProvider>
+  );
+}
+```
+
+### 4.2 RainbowKit Custom Theme
+
+`lib/wagmi/theme.ts`
+
+```typescript
+import { darkTheme, Theme } from '@rainbow-me/rainbowkit';
+import { merge } from 'lodash';
+
+export const customRainbowTheme: Theme = merge(darkTheme(), {
+  colors: {
+    accentColor: '#F5A623', // Mezo primary orange
+    accentColorForeground: '#FFFFFF',
+    actionButtonBorder: 'rgba(255, 255, 255, 0.08)',
+    actionButtonBorderMobile: 'rgba(255, 255, 255, 0.08)',
+    actionButtonSecondaryBackground: 'rgba(20, 22, 26, 0.8)',
+    closeButton: '#6B7280',
+    closeButtonBackground: 'rgba(255, 255, 255, 0.04)',
+    connectButtonBackground: 'rgba(20, 22, 26, 0.8)',
+    connectButtonBackgroundError: '#EF4444',
+    connectButtonInnerBackground: 'rgba(255, 255, 255, 0.04)',
+    connectButtonText: '#FFFFFF',
+    connectButtonTextError: '#FFFFFF',
+    connectionIndicator: '#10B981',
+    downloadBottomCardBackground: 'rgba(10, 11, 13, 0.95)',
+    downloadTopCardBackground: 'rgba(20, 22, 26, 0.9)',
+    error: '#EF4444',
+    generalBorder: 'rgba(255, 255, 255, 0.08)',
+    generalBorderDim: 'rgba(255, 255, 255, 0.04)',
+    menuItemBackground: 'rgba(255, 255, 255, 0.04)',
+    modalBackdrop: 'rgba(0, 0, 0, 0.6)',
+    modalBackground: '#0A0B0D',
+    modalBorder: 'rgba(255, 255, 255, 0.08)',
+    modalText: '#FFFFFF',
+    modalTextDim: '#6B7280',
+    modalTextSecondary: '#9CA3AF',
+    profileAction: 'rgba(255, 255, 255, 0.04)',
+    profileActionHover: 'rgba(255, 255, 255, 0.08)',
+    profileForeground: '#0A0B0D',
+    selectedOptionBorder: 'rgba(245, 166, 35, 0.3)',
+    standby: '#F59E0B',
+  },
+  fonts: {
+    body: 'var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  },
+  radii: {
+    actionButton: '12px',
+    connectButton: '12px',
+    menuButton: '12px',
+    modal: '16px',
+    modalMobile: '16px',
+  },
+  shadows: {
+    connectButton: '0 4px 12px rgba(0, 0, 0, 0.3)',
+    dialog: '0 8px 32px rgba(0, 0, 0, 0.5)',
+    profileAction: '0 2px 8px rgba(0, 0, 0, 0.2)',
+    selectedOption: '0 0 0 2px rgba(245, 166, 35, 0.3)',
+    selectedWallet: '0 0 0 2px rgba(245, 166, 35, 0.3)',
+    walletLogo: '0 2px 8px rgba(0, 0, 0, 0.2)',
+  },
+});
+```
+
+
+## 5. Custom Hooks for Wallet Management
+
+### 5.1 `hooks/wallet/useWalletConnection.ts`
+
+This is the primary hook for wallet connection state and actions.
+
+```tsx
+'use client';
+
+import { useAccount, useConnect, useDisconnect, useSwitchChain, useChainId } from 'wagmi';
+import { useCallback, useMemo } from 'react';
+import { toast } from 'sonner';
+import { SUPPORTED_CHAINS, DEFAULT_CHAIN } from '@/lib/constants/chains';
+import { injected } from 'wagmi/connectors';
+
+export interface WalletConnectionState {
+  isConnected: boolean;
+  isConnecting: boolean;
+  isReconnecting: boolean;
+  isSwitchingNetwork: boolean;
+  address: `0x${string}` | undefined;
+  chainId: number | undefined;
+  chain: typeof SUPPORTED_CHAINS[number] | undefined;
+  connector: string | undefined;
+}
+
+export interface WalletConnectionActions {
+  connect: (connectorId?: string) => Promise<void>;
+  connectInjected: () => Promise<void>;
+  disconnect: () => Promise<void>;
+  switchNetwork: (chainId: number) => Promise<void>;
+  switchToDefaultChain: () => Promise<void>;
+}
+
+export function useWalletConnection(): WalletConnectionState & WalletConnectionActions {
+  const { address, isConnected, chainId, chain, connector } = useAccount();
+  const { connectAsync, connectors, isPending: isConnecting } = useConnect();
+  const { disconnectAsync } = useDisconnect();
+  const { switchChainAsync, isPending: isSwitchingNetwork } = useSwitchChain();
+
+  const connect = useCallback(
+    async (connectorId?: string) => {
+      try {
+        const targetConnector = connectorId
+          ? connectors.find((c) => c.id === connectorId)
+          : connectors[0];
+        
+        if (!targetConnector) {
+          throw new Error('No wallet connector available');
+        }
+
+        await connectAsync({ connector: targetConnector });
+        toast.success('Wallet connected successfully');
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to connect wallet';
+        
+        // Handle specific error types
+        if (errorMessage.includes('User rejected')) {
+          toast.error('Connection rejected by user');
+        } else if (errorMessage.includes('Connector not found')) {
+          toast.error('Wallet not installed. Please install a compatible wallet.');
+        } else {
+          toast.error(errorMessage);
+        }
+        
+        throw error;
+      }
+    },
+    [connectAsync, connectors]
+  );
+
+  const connectInjected = useCallback(async () => {
+    const injectedConnector = connectors.find((c) => c.id === 'injected');
+    if (injectedConnector) {
+      await connect(injectedConnector.id);
+    } else {
+      toast.error('No injected wallet found. Please install MetaMask or another wallet.');
+    }
+  }, [connectors, connect]);
+
+  const disconnect = useCallback(async () => {
+    try {
+      await disconnectAsync();
+      toast.success('Wallet disconnected');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to disconnect';
+      toast.error(errorMessage);
+      throw error;
+    }
+  }, [disconnectAsync]);
+
+  const switchNetwork = useCallback(
+    async (targetChainId: number) => {
+      try {
+        await switchChainAsync({ chainId: targetChainId });
+        const chainName = SUPPORTED_CHAINS.find((c) => c.id === targetChainId)?.name;
+        toast.success(`Switched to ${chainName || 'network'}`);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to switch network';
+        
+        if (errorMessage.includes('User rejected')) {
+          toast.error('Network switch rejected');
+        } else if (errorMessage.includes('Chain not configured')) {
+          toast.error('Please add this network to your wallet');
+        } else {
+          toast.error(errorMessage);
+        }
+        
+        throw error;
+      }
+    },
+    [switchChainAsync]
+  );
+
+  const switchToDefaultChain = useCallback(async () => {
+    await switchNetwork(DEFAULT_CHAIN.id);
+  }, [switchNetwork]);
+
+  const isReconnecting = useMemo(() => {
+    return isConnecting && !isConnected;
+  }, [isConnecting, isConnected]);
+
+  return {
+    // State
+    isConnected,
+    isConnecting,
+    isReconnecting,
+    isSwitchingNetwork,
+    address,
+    chainId,
+    chain: chain as typeof SUPPORTED_CHAINS[number] | undefined,
+    connector: connector?.name,
+    // Actions
+    connect,
+    connectInjected,
+    disconnect,
+    switchNetwork,
+    switchToDefaultChain,
+  };
+}
+```
+
+### 5.2 `hooks/wallet/useWalletBalances.ts`
+
+Hook for fetching wallet balances on the Mezo network.
+
+```tsx
+'use client';
+
+import { useAccount, useBalance, useReadContracts } from 'wagmi';
+import { formatEther, formatUnits } from 'viem';
+import { useMemo } from 'react';
+import { CONTRACTS } from '@/lib/constants/addresses';
+
+interface TokenBalance {
+  symbol: string;
+  name: string;
+  balance: string;
+  formatted: string;
+  decimals: number;
+}
+
+interface WalletBalances {
+  native: {
+    symbol: string;
+    balance: string;
+    formatted: string;
+  } | null;
+  tokens: TokenBalance[];
+  isLoading: boolean;
+  refetch: () => void;
+}
+
+// Token configurations for the Mezo network
+const TOKEN_CONFIGS = [
+  {
+    address: CONTRACTS.MEZO_TOKEN,
+    symbol: 'MEZO',
+    name: 'Mezo Token',
+    decimals: 18,
+  },
+  {
+    address: CONTRACTS.MUSD_TOKEN,
+    symbol: 'MUSD',
+    name: 'Mezo USD',
+    decimals: 18,
+  },
+] as const;
+
+export function useWalletBalances(): WalletBalances {
+  const { address, isConnected } = useAccount();
+
+  // Native BTC balance
+  const {
+    data: nativeBalance,
+    isLoading: nativeLoading,
+    refetch: refetchNative,
+  } = useBalance({
+    address,
+    query: {
+      enabled: isConnected,
+      staleTime: 15_000,
+    },
+  });
+
+  // ERC-20 token balances
+  const {
+    data: tokenBalances,
+    isLoading: tokensLoading,
+    refetch: refetchTokens,
+  } = useReadContracts({
+    contracts: TOKEN_CONFIGS.map((token) => ({
+      address: token.address,
+      abi: [
+        {
+          name: 'balanceOf',
+          type: 'function',
+          inputs: [{ name: 'account', type: 'address' }],
+          outputs: [{ name: '', type: 'uint256' }],
+          stateMutability: 'view',
+        },
+      ] as const,
+      functionName: 'balanceOf',
+      args: [address!],
+    })),
+    query: {
+      enabled: isConnected && !!address,
+      staleTime: 15_000,
+    },
+  });
+
+  const tokens = useMemo(() => {
+    if (!tokenBalances) return [];
+    
+    return TOKEN_CONFIGS.map((token, index) => {
+      const balance = (tokenBalances[index]?.result as bigint) || 0n;
+      return {
+        symbol: token.symbol,
+        name: token.name,
+        balance: balance.toString(),
+        formatted: formatUnits(balance, token.decimals),
+        decimals: token.decimals,
+      };
+    });
+  }, [tokenBalances]);
+
+  const refetch = () => {
+    refetchNative();
+    refetchTokens();
+  };
+
+  return {
+    native: nativeBalance
+      ? {
+          symbol: nativeBalance.symbol,
+          balance: nativeBalance.value.toString(),
+          formatted: nativeBalance.formatted,
+        }
+      : null,
+    tokens,
+    isLoading: nativeLoading || tokensLoading,
+    refetch,
+  };
+}
+```
+
+### 5.3 `hooks/wallet/useNetworkStatus.ts`
+
+Hook for monitoring network health and correct chain connection.
+
+```tsx
+'use client';
+
+import { useAccount, useSwitchChain, useChainId } from 'wagmi';
+import { useMemo } from 'react';
+import { SUPPORTED_CHAINS, DEFAULT_CHAIN } from '@/lib/constants/chains';
+import { toast } from 'sonner';
+
+interface NetworkStatus {
+  isCorrectNetwork: boolean;
+  currentChain: typeof SUPPORTED_CHAINS[number] | undefined;
+  requiredChain: typeof DEFAULT_CHAIN;
+  isSwitching: boolean;
+  switchToCorrectNetwork: () => Promise<void>;
+  unsupportedNetwork: boolean;
+}
+
+export function useNetworkStatus(): NetworkStatus {
+  const { isConnected } = useAccount();
+  const chainId = useChainId();
+  const { switchChainAsync, isPending: isSwitching } = useSwitchChain();
+
+  const currentChain = useMemo(() => {
+    if (!chainId) return undefined;
+    return SUPPORTED_CHAINS.find((c) => c.id === chainId);
+  }, [chainId]);
+
+  const isCorrectNetwork = useMemo(() => {
+    if (!isConnected) return true;
+    return chainId === DEFAULT_CHAIN.id;
+  }, [isConnected, chainId]);
+
+  const unsupportedNetwork = useMemo(() => {
+    if (!isConnected || !chainId) return false;
+    return !SUPPORTED_CHAINS.some((c) => c.id === chainId);
+  }, [isConnected, chainId]);
+
+  const switchToCorrectNetwork = async () => {
+    try {
+      await switchChainAsync({ chainId: DEFAULT_CHAIN.id });
+      toast.success(`Switched to ${DEFAULT_CHAIN.name}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to switch network';
+      toast.error(errorMessage);
+      throw error;
+    }
+  };
+
+  return {
+    isCorrectNetwork,
+    currentChain,
+    requiredChain: DEFAULT_CHAIN,
+    isSwitching,
+    switchToCorrectNetwork,
+    unsupportedNetwork,
+  };
+}
+```
+
+### 5.4 `hooks/wallet/useWalletSigning.ts`
+
+Hook for message signing and signature verification.
+
+```tsx
+'use client';
+
+import { useAccount, useSignMessage, useSignTypedData } from 'wagmi';
+import { useCallback } from 'react';
+import { toast } from 'sonner';
+import { hashMessage, verifyMessage, type HashType } from 'viem';
+
+interface SigningResult {
+  signature: string;
+  signerAddress: string;
+}
+
+export function useWalletSigning() {
+  const { address } = useAccount();
+  const { signMessageAsync, isPending: isSigningMessage } = useSignMessage();
+  const { signTypedDataAsync, isPending: isSigningTypedData } = useSignTypedData();
+
+  const signMessage = useCallback(
+    async (message: string): Promise<SigningResult | null> => {
+      if (!address) {
+        toast.error('Wallet not connected');
+        return null;
+      }
+
+      try {
+        const signature = await signMessageAsync({ message });
+        return { signature, signerAddress: address };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to sign message';
+        
+        if (errorMessage.includes('User rejected')) {
+          toast.error('Signing cancelled');
+        } else {
+          toast.error(errorMessage);
+        }
+        
+        return null;
+      }
+    },
+    [address, signMessageAsync]
+  );
+
+  const signTypedData = useCallback(
+    async (domain: any, types: any, value: any): Promise<SigningResult | null> => {
+      if (!address) {
+        toast.error('Wallet not connected');
+        return null;
+      }
+
+      try {
+        const signature = await signTypedDataAsync({
+          domain,
+          types,
+          primaryType: Object.keys(types)[0],
+          message: value,
+        });
+        return { signature, signerAddress: address };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to sign typed data';
+        toast.error(errorMessage);
+        return null;
+      }
+    },
+    [address, signTypedDataAsync]
+  );
+
+  const verifySignature = useCallback(
+    (message: string, signature: string): boolean => {
+      try {
+        const recoveredAddress = verifyMessage({
+          address: address!,
+          message,
+          signature: signature as `0x${string}`,
+        });
+        return recoveredAddress;
+      } catch {
+        return false;
+      }
+    },
+    [address]
+  );
+
+  return {
+    signMessage,
+    signTypedData,
+    verifySignature,
+    isSigning: isSigningMessage || isSigningTypedData,
+    isSigningMessage,
+    isSigningTypedData,
+  };
+}
+```
+
+
+## 6. Connection Components
+
+### 6.1 Custom Connect Button
+
+`components/wallet/ConnectButton.tsx`
+
+```tsx
+'use client';
+
+import { ConnectButton as RainbowConnectButton } from '@rainbow-me/rainbowkit';
+import { Button } from '@/components/ui/Button';
+import { useWalletConnection } from '@/hooks/wallet/useWalletConnection';
+import { useNetworkStatus } from '@/hooks/wallet/useNetworkStatus';
+import { cn } from '@/lib/utils';
+import { ChevronDown, Wallet, AlertCircle, Loader2 } from 'lucide-react';
+
+interface ConnectButtonProps {
+  className?: string;
+  showBalance?: boolean;
+  showNetwork?: boolean;
+}
+
+export function ConnectButton({ className, showBalance = true, showNetwork = false }: ConnectButtonProps) {
+  const { isConnected, isConnecting, address } = useWalletConnection();
+  const { isCorrectNetwork, unsupportedNetwork } = useNetworkStatus();
+
+  return (
+    <RainbowConnectButton.Custom>
+      {({
+        account,
+        chain,
+        openAccountModal,
+        openChainModal,
+        openConnectModal,
+        authenticationStatus,
+        mounted,
+      }) => {
+        const ready = mounted && authenticationStatus !== 'loading';
+        const connected =
+          ready &&
+          account &&
+          chain &&
+          (!authenticationStatus || authenticationStatus === 'authenticated');
+
+        return (
+          <div
+            {...(!ready && {
+              'aria-hidden': true,
+              style: {
+                opacity: 0,
+                pointerEvents: 'none',
+                userSelect: 'none',
+              },
+            })}
+            className={cn('relative', className)}
+          >
+            {(() => {
+              if (!connected) {
+                return (
+                  <Button
+                    onClick={openConnectModal}
+                    loading={isConnecting}
+                    className="gap-2"
+                  >
+                    <Wallet className="h-4 w-4" />
+                    {isConnecting ? 'Connecting...' : 'Connect Wallet'}
+                  </Button>
+                );
+              }
+
+              if (unsupportedNetwork || !isCorrectNetwork) {
+                return (
+                  <Button
+                    onClick={openChainModal}
+                    variant="danger"
+                    className="gap-2"
+                  >
+                    <AlertCircle className="h-4 w-4" />
+                    Wrong Network
+                  </Button>
+                );
+              }
+
+              return (
+                <div className="flex items-center gap-2">
+                  {showNetwork && chain && (
+                    <button
+                      onClick={openChainModal}
+                      className="flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-xl hover:bg-white/5 transition"
+                    >
+                      {chain.hasIcon && chain.iconUrl && (
+                        <img
+                          src={chain.iconUrl}
+                          alt={chain.name}
+                          className="w-5 h-5"
+                        />
+                      )}
+                      <span className="text-sm font-medium">{chain.name}</span>
+                      <ChevronDown className="h-4 w-4 text-mezo-muted" />
+                    </button>
+                  )}
+                  
+                  <button
+                    onClick={openAccountModal}
+                    className="flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-xl hover:bg-white/5 transition"
+                  >
+                    {showBalance && account.displayBalance && (
+                      <span className="text-sm font-medium">
+                        {account.displayBalance}
+                      </span>
+                    )}
+                    <span className="text-sm text-mezo-muted">
+                      {account.displayName}
+                    </span>
+                    {account.ensAvatar ? (
+                      <img
+                        src={account.ensAvatar}
+                        alt="ENS Avatar"
+                        className="w-5 h-5 rounded-full"
+                      />
+                    ) : (
+                      <div className="w-5 h-5 bg-gradient-to-r from-mezo-primary to-mezo-secondary rounded-full" />
+                    )}
+                    <ChevronDown className="h-4 w-4 text-mezo-muted" />
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+        );
+      }}
+    </RainbowConnectButton.Custom>
+  );
+}
+```
+
+### 6.2 Wallet Connection Modal (Custom Implementation)
+
+`components/wallet/WalletModal.tsx`
+
+```tsx
+'use client';
+
+import { Fragment, useState } from 'react';
+import { Dialog, Transition } from '@headlessui/react';
+import { useConnect, useAccount } from 'wagmi';
+import { X, Wallet, ChevronRight, AlertCircle, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { cn } from '@/lib/utils';
+import Image from 'next/image';
+
+interface WalletModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+interface WalletOption {
+  id: string;
+  name: string;
+  icon: string;
+  description?: string;
+  installed?: boolean;
+}
+
+const WALLET_OPTIONS: WalletOption[] = [
+  {
+    id: 'metaMask',
+    name: 'MetaMask',
+    icon: '/wallets/metamask.svg',
+    description: 'Connect to your MetaMask wallet',
+  },
+  {
+    id: 'walletConnect',
+    name: 'WalletConnect',
+    icon: '/wallets/walletconnect.svg',
+    description: 'Scan with WalletConnect',
+  },
+  {
+    id: 'coinbase',
+    name: 'Coinbase Wallet',
+    icon: '/wallets/coinbase.svg',
+    description: 'Connect to your Coinbase wallet',
+  },
+  {
+    id: 'xverse',
+    name: 'Xverse',
+    icon: '/wallets/xverse.svg',
+    description: 'Connect Bitcoin wallet via Xverse',
+  },
+  {
+    id: 'unisat',
+    name: 'UniSat',
+    icon: '/wallets/unisat.svg',
+    description: 'Connect Bitcoin wallet via UniSat',
+  },
+];
+
+export function WalletModal({ isOpen, onClose }: WalletModalProps) {
+  const { connect, connectors } = useConnect();
+  const { isConnected } = useAccount();
+  const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleConnect = async (connectorId: string) => {
+    setConnectingId(connectorId);
+    setError(null);
+
+    const connector = connectors.find((c) => c.id === connectorId);
+    if (!connector) {
+      setError('Wallet connector not found');
+      setConnectingId(null);
+      return;
+    }
+
+    try {
+      await connect({ connector });
+      onClose();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to connect';
+      
+      if (errorMessage.includes('User rejected')) {
+        setError('Connection rejected. Please try again.');
+      } else if (errorMessage.includes('Connector not found')) {
+        setError('Wallet not installed. Please install the wallet and try again.');
+      } else {
+        setError(errorMessage);
+      }
+    } finally {
+      setConnectingId(null);
+    }
+  };
+
+  // Auto-close if connected
+  if (isConnected) {
+    onClose();
+    return null;
+  }
+
+  return (
+    <Transition appear show={isOpen} as={Fragment}>
+      <Dialog as="div" className="relative z-50" onClose={onClose}>
+        <Transition.Child
+          as={Fragment}
+          enter="ease-out duration-300"
+          enterFrom="opacity-0"
+          enterTo="opacity-100"
+          leave="ease-in duration-200"
+          leaveFrom="opacity-100"
+          leaveTo="opacity-0"
+        >
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm" />
+        </Transition.Child>
+
+        <div className="fixed inset-0 overflow-y-auto">
+          <div className="flex min-h-full items-center justify-center p-4">
+            <Transition.Child
+              as={Fragment}
+              enter="ease-out duration-300"
+              enterFrom="opacity-0 scale-95"
+              enterTo="opacity-100 scale-100"
+              leave="ease-in duration-200"
+              leaveFrom="opacity-100 scale-100"
+              leaveTo="opacity-0 scale-95"
+            >
+              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-mezo-darker border border-border shadow-xl transition-all">
+                {/* Header */}
+                <div className="flex items-center justify-between p-6 border-b border-border">
+                  <Dialog.Title className="text-lg font-semibold">
+                    Connect Wallet
+                  </Dialog.Title>
+                  <button
+                    onClick={onClose}
+                    className="p-1 hover:bg-white/5 rounded-lg transition"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                {/* Content */}
+                <div className="p-6">
+                  {error && (
+                    <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-2 text-red-400">
+                      <AlertCircle className="h-4 w-4" />
+                      <span className="text-sm">{error}</span>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    {WALLET_OPTIONS.map((option) => {
+                      const isConnecting = connectingId === option.id;
+                      
+                      return (
+                        <button
+                          key={option.id}
+                          onClick={() => handleConnect(option.id)}
+                          disabled={!!connectingId}
+                          className={cn(
+                            'flex items-center w-full p-4 rounded-xl border border-border bg-card hover:bg-white/5 transition-all',
+                            'disabled:opacity-50 disabled:cursor-not-allowed'
+                          )}
+                        >
+                          <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center mr-4">
+                            <Wallet className="h-5 w-5 text-mezo-primary" />
+                          </div>
+                          <div className="flex-1 text-left">
+                            <p className="font-medium">{option.name}</p>
+                            {option.description && (
+                              <p className="text-sm text-mezo-muted">{option.description}</p>
+                            )}
+                          </div>
+                          {isConnecting ? (
+                            <Loader2 className="h-5 w-5 animate-spin text-mezo-primary" />
+                          ) : (
+                            <ChevronRight className="h-5 w-5 text-mezo-muted" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="p-6 border-t border-border">
+                  <p className="text-xs text-mezo-muted text-center">
+                    By connecting, you agree to our{' '}
+                    <a href="/terms" className="text-mezo-primary hover:underline">
+                      Terms of Service
+                    </a>{' '}
+                    and{' '}
+                    <a href="/privacy" className="text-mezo-primary hover:underline">
+                      Privacy Policy
+                    </a>
+                  </p>
+                </div>
+              </Dialog.Panel>
+            </Transition.Child>
+          </div>
+        </div>
+      </Dialog>
+    </Transition>
+  );
+}
+```
+
+### 6.3 Network Switcher Component
+
+`components/wallet/NetworkSwitcher.tsx`
+
+```tsx
+'use client';
+
+import { useChainId, useSwitchChain } from 'wagmi';
+import { SUPPORTED_CHAINS, DEFAULT_CHAIN } from '@/lib/constants/chains';
+import { Check, ChevronDown, AlertTriangle } from 'lucide-react';
+import { Menu, Transition } from '@headlessui/react';
+import { Fragment } from 'react';
+import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+
+export function NetworkSwitcher() {
+  const chainId = useChainId();
+  const { switchChain, isPending } = useSwitchChain();
+
+  const currentChain = SUPPORTED_CHAINS.find((c) => c.id === chainId) || DEFAULT_CHAIN;
+  const isCorrectNetwork = chainId === DEFAULT_CHAIN.id;
+
+  const handleSwitchNetwork = async (targetChainId: number) => {
+    if (targetChainId === chainId) return;
+    
+    try {
+      await switchChain({ chainId: targetChainId });
+      const chainName = SUPPORTED_CHAINS.find((c) => c.id === targetChainId)?.name;
+      toast.success(`Switched to ${chainName}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to switch network';
+      toast.error(errorMessage);
+    }
+  };
+
+  return (
+    <Menu as="div" className="relative">
+      <Menu.Button
+        className={cn(
+          'flex items-center gap-2 px-3 py-2 rounded-xl border transition',
+          isCorrectNetwork
+            ? 'bg-mezo-accent/10 border-mezo-accent/30 text-mezo-accent'
+            : 'bg-red-500/10 border-red-500/30 text-red-400'
+        )}
+        disabled={isPending}
+      >
+        {!isCorrectNetwork && <AlertTriangle className="h-4 w-4" />}
+        <span className="text-sm font-medium">{currentChain.name}</span>
+        <ChevronDown className="h-4 w-4" />
+      </Menu.Button>
+
+      <Transition
+        as={Fragment}
+        enter="transition ease-out duration-100"
+        enterFrom="transform opacity-0 scale-95"
+        enterTo="transform opacity-100 scale-100"
+        leave="transition ease-in duration-75"
+        leaveFrom="transform opacity-100 scale-100"
+        leaveTo="transform opacity-0 scale-95"
+      >
+        <Menu.Items className="absolute right-0 mt-2 w-56 origin-top-right rounded-xl bg-mezo-darker border border-border shadow-xl z-50">
+          <div className="p-1">
+            {SUPPORTED_CHAINS.map((chain) => (
+              <Menu.Item key={chain.id}>
+                {({ active }) => (
+                  <button
+                    onClick={() => handleSwitchNetwork(chain.id)}
+                    className={cn(
+                      'flex items-center w-full px-3 py-2 rounded-lg text-left transition',
+                      active && 'bg-white/5',
+                      chainId === chain.id && 'bg-mezo-primary/10'
+                    )}
+                  >
+                    <span className="flex-1">{chain.name}</span>
+                    {chainId === chain.id && (
+                      <Check className="h-4 w-4 text-mezo-primary" />
+                    )}
+                    {chain.testnet && (
+                      <span className="ml-2 px-1.5 py-0.5 text-xs bg-white/10 rounded">
+                        Testnet
+                      </span>
+                    )}
+                  </button>
+                )}
+              </Menu.Item>
+            ))}
+          </div>
+        </Menu.Items>
+      </Transition>
+    </Menu>
+  );
+}
+```
+
+### 6.4 Account Display Component
+
+`components/wallet/AccountDisplay.tsx`
+
+```tsx
+'use client';
+
+import { useAccount, useDisconnect, useBalance } from 'wagmi';
+import { Menu, Transition } from '@headlessui/react';
+import { Fragment, useState } from 'react';
+import {
+  Copy,
+  ExternalLink,
+  LogOut,
+  ChevronDown,
+  Check,
+  Wallet,
+  RefreshCw,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { shortenAddress } from '@/lib/utils';
+import { useWalletBalances } from '@/hooks/wallet/useWalletBalances';
+import { toast } from 'sonner';
+
+export function AccountDisplay() {
+  const { address, chain } = useAccount();
+  const { disconnect } = useDisconnect();
+  const { native, tokens, isLoading, refetch } = useWalletBalances();
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyAddress = async () => {
+    if (!address) return;
+    await navigator.clipboard.writeText(address);
+    setCopied(true);
+    toast.success('Address copied to clipboard');
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDisconnect = async () => {
+    await disconnect();
+    toast.success('Wallet disconnected');
+  };
+
+  const handleViewExplorer = () => {
+    if (!address || !chain?.blockExplorers?.default?.url) return;
+    window.open(`${chain.blockExplorers.default.url}/address/${address}`, '_blank');
+  };
+
+  if (!address) return null;
+
+  return (
+    <Menu as="div" className="relative">
+      <Menu.Button className="flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-xl hover:bg-white/5 transition">
+        <div className="w-8 h-8 bg-gradient-to-r from-mezo-primary to-mezo-secondary rounded-full flex items-center justify-center">
+          <Wallet className="h-4 w-4 text-white" />
+        </div>
+        <span className="text-sm font-medium">{shortenAddress(address)}</span>
+        <ChevronDown className="h-4 w-4 text-mezo-muted" />
+      </Menu.Button>
+
+      <Transition
+        as={Fragment}
+        enter="transition ease-out duration-100"
+        enterFrom="transform opacity-0 scale-95"
+        enterTo="transform opacity-100 scale-100"
+        leave="transition ease-in duration-75"
+        leaveFrom="transform opacity-100 scale-100"
+        leaveTo="transform opacity-0 scale-95"
+      >
+        <Menu.Items className="absolute right-0 mt-2 w-72 origin-top-right rounded-xl bg-mezo-darker border border-border shadow-xl z-50">
+          <div className="p-4 border-b border-border">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-mezo-muted">Connected Wallet</span>
+              <button
+                onClick={handleCopyAddress}
+                className="p-1 hover:bg-white/5 rounded transition"
+              >
+                {copied ? (
+                  <Check className="h-4 w-4 text-mezo-accent" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+            <p className="font-mono text-sm">{shortenAddress(address, 8)}</p>
+          </div>
+
+          <div className="p-4 border-b border-border">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-medium">Balances</span>
+              <button
+                onClick={() => refetch()}
+                className="p-1 hover:bg-white/5 rounded transition"
+                disabled={isLoading}
+              >
+                <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
+              </button>
+            </div>
+            {isLoading ? (
+              <div className="space-y-2">
+                <div className="h-5 bg-white/10 animate-pulse rounded" />
+                <div className="h-5 bg-white/10 animate-pulse rounded" />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {native && (
+                  <div className="flex justify-between">
+                    <span className="text-sm text-mezo-muted">{native.symbol}</span>
+                    <span className="text-sm font-medium">{native.formatted}</span>
+                  </div>
+                )}
+                {tokens.map((token) => (
+                  <div key={token.symbol} className="flex justify-between">
+                    <span className="text-sm text-mezo-muted">{token.symbol}</span>
+                    <span className="text-sm font-medium">{token.formatted}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="p-2">
+            <Menu.Item>
+              {({ active }) => (
+                <button
+                  onClick={handleViewExplorer}
+                  className={cn(
+                    'flex items-center w-full px-3 py-2 rounded-lg text-left transition',
+                    active && 'bg-white/5'
+                  )}
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  View on Explorer
+                </button>
+              )}
+            </Menu.Item>
+            <Menu.Item>
+              {({ active }) => (
+                <button
+                  onClick={handleDisconnect}
+                  className={cn(
+                    'flex items-center w-full px-3 py-2 rounded-lg text-left transition text-red-400',
+                    active && 'bg-red-400/10'
+                  )}
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Disconnect
+                </button>
+              )}
+            </Menu.Item>
+          </div>
+        </Menu.Items>
+      </Transition>
+    </Menu>
+  );
+}
+```
+
+
+## 7. Error Handling & Connection Recovery
+
+### 7.1 Connection Error Boundary
+
+`components/wallet/ConnectionErrorBoundary.tsx`
+
+```tsx
+'use client';
+
+import { Component, ErrorInfo, ReactNode } from 'react';
+import { Button } from '@/components/ui/Button';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { useWalletConnection } from '@/hooks/wallet/useWalletConnection';
+
+interface Props {
+  children: ReactNode;
+}
+
+interface State {
+  hasError: boolean;
+  error: Error | null;
+  errorInfo: ErrorInfo | null;
+}
+
+export class ConnectionErrorBoundary extends Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = { hasError: false, error: null, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error: Error): Partial<State> {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('Wallet Connection Error:', error, errorInfo);
+    this.setState({ errorInfo });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <ConnectionErrorFallback error={this.state.error} onReset={() => this.setState({ hasError: false })} />;
+    }
+
+    return this.props.children;
+  }
+}
+
+function ConnectionErrorFallback({ error, onReset }: { error: Error | null; onReset: () => void }) {
+  const { disconnect } = useWalletConnection();
+
+  const handleReset = async () => {
+    try {
+      await disconnect();
+    } catch {
+      // Ignore disconnect errors
+    }
+    onReset();
+    window.location.reload();
+  };
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-mezo-darker/95 backdrop-blur-sm z-50">
+      <div className="max-w-md p-8 bg-card border border-border rounded-2xl text-center">
+        <AlertTriangle className="h-16 w-16 text-mezo-primary mx-auto mb-4" />
+        <h2 className="text-xl font-bold mb-2">Connection Error</h2>
+        <p className="text-mezo-muted mb-4">
+          {error?.message || 'An unexpected error occurred with your wallet connection.'}
+        </p>
+        <p className="text-sm text-mezo-muted mb-6">
+          Try refreshing the page or disconnecting and reconnecting your wallet.
+        </p>
+        <Button onClick={handleReset} className="gap-2">
+          <RefreshCw className="h-4 w-4" />
+          Reset Connection
+        </Button>
+      </div>
+    </div>
+  );
+}
+```
+
+### 7.2 Error Types & Utilities
+
+`lib/wallet/errors.ts`
+
+```typescript
+export enum WalletErrorType {
+  // Connection errors
+  CONNECTOR_NOT_FOUND = 'ConnectorNotFoundError',
+  CONNECTOR_ALREADY_CONNECTED = 'ConnectorAlreadyConnectedError',
+  USER_REJECTED = 'UserRejectedRequestError',
+  CHAIN_NOT_CONFIGURED = 'ChainNotConfiguredError',
+  PROVIDER_NOT_FOUND = 'ProviderNotFoundError',
+  
+  // Network errors
+  NETWORK_ERROR = 'NetworkError',
+  CHAIN_MISMATCH = 'ChainMismatchError',
+  UNSUPPORTED_CHAIN = 'UnsupportedChainError',
+  
+  // Transaction errors
+  TRANSACTION_REJECTED = 'TransactionRejectedError',
+  TRANSACTION_FAILED = 'TransactionFailedError',
+  INSUFFICIENT_FUNDS = 'InsufficientFundsError',
+  
+  // General errors
+  UNKNOWN_ERROR = 'UnknownError',
+}
+
+export interface WalletError {
+  type: WalletErrorType;
+  message: string;
+  originalError?: Error;
+}
+
+export function parseWalletError(error: unknown): WalletError {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorName = error instanceof Error ? error.name : 'UnknownError';
+  
+  // User rejection
+  if (errorMessage.includes('User rejected') || errorMessage.includes('user rejected')) {
+    return {
+      type: WalletErrorType.USER_REJECTED,
+      message: 'Transaction was rejected by user',
+      originalError: error instanceof Error ? error : undefined,
+    };
+  }
+  
+  // Connector not found
+  if (errorName === 'ConnectorNotFoundError' || errorMessage.includes('Connector not found')) {
+    return {
+      type: WalletErrorType.CONNECTOR_NOT_FOUND,
+      message: 'Wallet connector not found. Please install a compatible wallet.',
+      originalError: error instanceof Error ? error : undefined,
+    };
+  }
+  
+  // Chain mismatch
+  if (errorMessage.includes('Chain mismatch') || errorName === 'ChainMismatchError') {
+    return {
+      type: WalletErrorType.CHAIN_MISMATCH,
+      message: 'Please switch to the correct network in your wallet.',
+      originalError: error instanceof Error ? error : undefined,
+    };
+  }
+  
+  // Unsupported chain
+  if (errorName === 'UnsupportedChainError' || errorMessage.includes('Unsupported chain')) {
+    return {
+      type: WalletErrorType.UNSUPPORTED_CHAIN,
+      message: 'This network is not supported. Please switch to Mezo.',
+      originalError: error instanceof Error ? error : undefined,
+    };
+  }
+  
+  // Insufficient funds
+  if (errorMessage.includes('insufficient funds') || errorMessage.includes('insufficient balance')) {
+    return {
+      type: WalletErrorType.INSUFFICIENT_FUNDS,
+      message: 'Insufficient funds for transaction.',
+      originalError: error instanceof Error ? error : undefined,
+    };
+  }
+  
+  // Default
+  return {
+    type: WalletErrorType.UNKNOWN_ERROR,
+    message: errorMessage || 'An unknown error occurred',
+    originalError: error instanceof Error ? error : undefined,
+  };
+}
+
+export function getUserFriendlyErrorMessage(error: WalletError): string {
+  switch (error.type) {
+    case WalletErrorType.CONNECTOR_NOT_FOUND:
+      return 'Wallet not detected. Please install MetaMask, Xverse, or another compatible wallet.';
+    case WalletErrorType.USER_REJECTED:
+      return 'Transaction cancelled. You can try again when ready.';
+    case WalletErrorType.CHAIN_NOT_CONFIGURED:
+    case WalletErrorType.CHAIN_MISMATCH:
+      return 'Please switch to the Mezo network in your wallet.';
+    case WalletErrorType.UNSUPPORTED_CHAIN:
+      return 'This network is not supported. Please switch to Mezo.';
+    case WalletErrorType.INSUFFICIENT_FUNDS:
+      return 'You don\'t have enough BTC to cover the gas fees.';
+    case WalletErrorType.TRANSACTION_FAILED:
+      return 'Transaction failed. Please try again.';
+    default:
+      return error.message;
+  }
+}
+```
+
+
+## 8. Wallet Persistence & Session Management
+
+### 8.1 `lib/wallet/persistence.ts`
+
+```typescript
+const STORAGE_KEYS = {
+  LAST_CONNECTED_WALLET: 'vemezo:last_connected_wallet',
+  LAST_CONNECTED_ADDRESS: 'vemezo:last_connected_address',
+  PREFERRED_CHAIN: 'vemezo:preferred_chain',
+} as const;
+
+export interface WalletSession {
+  connectorId: string;
+  address: string;
+  chainId: number;
+  timestamp: number;
+}
+
+export function saveWalletSession(session: WalletSession): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.LAST_CONNECTED_WALLET, session.connectorId);
+    localStorage.setItem(STORAGE_KEYS.LAST_CONNECTED_ADDRESS, session.address);
+    localStorage.setItem(STORAGE_KEYS.PREFERRED_CHAIN, session.chainId.toString());
+    localStorage.setItem(`${STORAGE_KEYS.LAST_CONNECTED_WALLET}:timestamp`, session.timestamp.toString());
+  } catch (error) {
+    console.warn('Failed to save wallet session:', error);
+  }
+}
+
+export function getLastWalletSession(): WalletSession | null {
+  try {
+    const connectorId = localStorage.getItem(STORAGE_KEYS.LAST_CONNECTED_WALLET);
+    const address = localStorage.getItem(STORAGE_KEYS.LAST_CONNECTED_ADDRESS);
+    const chainId = localStorage.getItem(STORAGE_KEYS.PREFERRED_CHAIN);
+    const timestamp = localStorage.getItem(`${STORAGE_KEYS.LAST_CONNECTED_WALLET}:timestamp`);
+    
+    if (!connectorId || !address || !chainId || !timestamp) {
+      return null;
+    }
+    
+    // Session expires after 30 days
+    const sessionAge = Date.now() - parseInt(timestamp, 10);
+    const MAX_SESSION_AGE = 30 * 24 * 60 * 60 * 1000;
+    
+    if (sessionAge > MAX_SESSION_AGE) {
+      clearWalletSession();
+      return null;
+    }
+    
+    return {
+      connectorId,
+      address,
+      chainId: parseInt(chainId, 10),
+      timestamp: parseInt(timestamp, 10),
+    };
+  } catch (error) {
+    console.warn('Failed to retrieve wallet session:', error);
+    return null;
+  }
+}
+
+export function clearWalletSession(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.LAST_CONNECTED_WALLET);
+    localStorage.removeItem(STORAGE_KEYS.LAST_CONNECTED_ADDRESS);
+    localStorage.removeItem(STORAGE_KEYS.PREFERRED_CHAIN);
+    localStorage.removeItem(`${STORAGE_KEYS.LAST_CONNECTED_WALLET}:timestamp`);
+  } catch (error) {
+    console.warn('Failed to clear wallet session:', error);
+  }
+}
+
+export function isSessionValid(session: WalletSession): boolean {
+  const MAX_SESSION_AGE = 30 * 24 * 60 * 60 * 1000;
+  return Date.now() - session.timestamp < MAX_SESSION_AGE;
+}
+```
+
+
+## 9. Utility Functions
+
+### 9.1 `lib/utils/address.ts`
+
+```typescript
+export function shortenAddress(address: string, chars = 4): string {
+  if (!address) return '';
+  if (address.length < chars * 2 + 2) return address;
+  return `${address.slice(0, chars + 2)}...${address.slice(-chars)}`;
+}
+
+export function formatAddress(address: string): string {
+  return shortenAddress(address, 4);
+}
+
+export function isValidAddress(address: string): boolean {
+  return /^0x[a-fA-F0-9]{40}$/.test(address);
+}
+
+export function normalizeAddress(address: string): `0x${string}` {
+  if (!address.startsWith('0x')) {
+    return `0x${address}` as `0x${string}`;
+  }
+  return address as `0x${string}`;
+}
+```
+
+### 9.2 `lib/utils/format.ts`
+
+```typescript
+import { formatUnits } from 'viem';
+
+export function formatNumber(num: number, decimals = 2): string {
+  if (num >= 1_000_000_000) {
+    return (num / 1_000_000_000).toFixed(decimals) + 'B';
+  }
+  if (num >= 1_000_000) {
+    return (num / 1_000_000).toFixed(decimals) + 'M';
+  }
+  if (num >= 1_000) {
+    return (num / 1_000).toFixed(decimals) + 'K';
+  }
+  return num.toFixed(decimals);
+}
+
+export function formatTokenAmount(amount: bigint, decimals: number, displayDecimals = 4): string {
+  const formatted = formatUnits(amount, decimals);
+  const num = parseFloat(formatted);
+  
+  if (num === 0) return '0';
+  if (num < 0.0001) return '<0.0001';
+  
+  return num.toFixed(displayDecimals);
+}
+
+export function formatUSD(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+```
+
+
+## 10. Integration with Main Layout
+
+### 10.1 Updated Header Component
+
+`components/navigation/Header.tsx` (excerpt with wallet integration)
+
+```tsx
+'use client';
+
+import { ConnectButton } from '@/components/wallet/ConnectButton';
+import { NetworkSwitcher } from '@/components/wallet/NetworkSwitcher';
+import { AccountDisplay } from '@/components/wallet/AccountDisplay';
+import { useWalletConnection } from '@/hooks/wallet/useWalletConnection';
+import { useNetworkStatus } from '@/hooks/wallet/useNetworkStatus';
+import { AlertCircle } from 'lucide-react';
+
+export function Header() {
+  const { isConnected } = useWalletConnection();
+  const { isCorrectNetwork, unsupportedNetwork, switchToCorrectNetwork } = useNetworkStatus();
+
+  return (
+    <header className="h-16 border-b border-border bg-mezo-darker/80 backdrop-blur-xl sticky top-0 z-40">
+      <div className="h-full px-4 flex items-center justify-between">
+        {/* Left section */}
+        <div className="flex items-center gap-4">
+          <Breadcrumb />
+        </div>
+
+        {/* Right section */}
+        <div className="flex items-center gap-2">
+          {/* Network warning banner (conditional) */}
+          {isConnected && !isCorrectNetwork && (
+            <button
+              onClick={switchToCorrectNetwork}
+              className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm"
+            >
+              <AlertCircle size={14} />
+              <span>Switch to Mezo</span>
+            </button>
+          )}
+
+          {/* Network Switcher */}
+          <NetworkSwitcher />
+
+          {/* Wallet Connection */}
+          <ConnectButton showBalance showNetwork />
+        </div>
+      </div>
+    </header>
+  );
+}
+```
+
+
+## 11. Testing Wallet Connection
+
+### 11.1 Test Utilities
+
+`__tests__/utils/wallet-test-utils.tsx`
+
+```tsx
+import { WagmiProvider, createConfig, http } from 'wagmi';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { mezoTestnet } from '@/lib/constants/chains';
+import { ReactNode } from 'react';
+import { mock } from 'wagmi/connectors';
+
+const mockConfig = createConfig({
+  chains: [mezoTestnet],
+  connectors: [
+    mock({
+      accounts: ['0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'],
+    }),
+  ],
+  transports: {
+    [mezoTestnet.id]: http(),
+  },
+});
+
+export function createTestQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  });
+}
+
+export function TestWalletProvider({ children }: { children: ReactNode }) {
+  const queryClient = createTestQueryClient();
+  
+  return (
+    <WagmiProvider config={mockConfig}>
+      <QueryClientProvider client={queryClient}>
+        {children}
+      </QueryClientProvider>
+    </WagmiProvider>
+  );
+}
+```
+
+### 11.2 Connection Hook Tests
+
+`__tests__/hooks/useWalletConnection.test.tsx`
+
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+import { renderHook, waitFor } from '@testing-library/react';
+import { useWalletConnection } from '@/hooks/wallet/useWalletConnection';
+import { TestWalletProvider } from '../utils/wallet-test-utils';
+
+describe('useWalletConnection', () => {
+  it('should return initial disconnected state', () => {
+    const { result } = renderHook(() => useWalletConnection(), {
+      wrapper: TestWalletProvider,
+    });
+    
+    expect(result.current.isConnected).toBe(false);
+    expect(result.current.address).toBeUndefined();
+  });
+
+  it('should handle connection actions', async () => {
+    const { result } = renderHook(() => useWalletConnection(), {
+      wrapper: TestWalletProvider,
+    });
+    
+    expect(result.current.connect).toBeDefined();
+    expect(result.current.disconnect).toBeDefined();
+    expect(result.current.switchNetwork).toBeDefined();
+  });
+});
+```
+
+
+## 12. Summary
+
+This comprehensive wallet connection implementation provides:
+
+1. **Mezo Passport Integration**: Full support for Bitcoin wallets (Xverse, Unisat) alongside EVM wallets (MetaMask, WalletConnect) via the official `@mezo-org/passport` package.
+
+2. **Robust Configuration**: Proper wagmi setup with custom chains (Mezo Testnet ID 31611, Mainnet ID 31612) and BTC as native currency with 18 decimals.
+
+3. **Custom Hooks**: `useWalletConnection`, `useWalletBalances`, `useNetworkStatus`, and `useWalletSigning` for complete wallet management.
+
+4. **UI Components**: Custom ConnectButton, WalletModal, NetworkSwitcher, and AccountDisplay with Mezo-branded RainbowKit theme.
+
+5. **Error Handling**: Comprehensive error boundary, error type classification, and user-friendly error messages following wagmi best practices.
+
+6. **Session Persistence**: Local storage-based wallet session management with 30-day expiration.
+
+7. **Network Management**: Automatic detection of wrong networks with easy switching to Mezo.
+
+8. **Balance Display**: Native BTC and ERC-20 token (MEZO, MUSD) balance fetching with refresh capability.
+
+This implementation satisfies the hackathon's **Mezo Integration (30%)** requirement and provides a production‑ready wallet experience for the Auto‑Compounder Vault.

@@ -1,14 +1,17 @@
 import { Link, useLocation } from "wouter";
 import { useAppStore } from "@/store/appStore";
-import { useWallet } from "@/hooks/useWallet";
+import { useWalletConnection } from "@/hooks/wallet/useWalletConnection";
 import { Button } from "@/components/ui/button";
+import { WalletModal }    from "@/components/wallet/WalletModal";
+import { AccountDisplay } from "@/components/wallet/AccountDisplay";
 import {
   LayoutDashboard, Vault, BarChart3, BookOpen, Menu, X, Wallet,
   TrendingUp, ArrowLeftRight, Vote, Trophy, History, Settings,
-  ExternalLink, ChevronLeft, ChevronRight, Home, Users, LogOut, User,
+  ExternalLink, ChevronLeft, ChevronRight, Home, User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
+import { shortenAddress } from "@/lib/utils";
 
 interface NavItem {
   href: string;
@@ -18,20 +21,20 @@ interface NavItem {
 }
 
 const MAIN_NAV: NavItem[] = [
-  { href: "/app",        label: "Dashboard",  icon: LayoutDashboard },
-  { href: "/vault",      label: "Vault",      icon: Vault },
-  { href: "/portfolio",  label: "Portfolio",  icon: TrendingUp },
-  { href: "/earn",       label: "Earn",       icon: TrendingUp },
-  { href: "/swap",       label: "Swap",       icon: ArrowLeftRight },
-  { href: "/governance", label: "Governance", icon: Vote },
-  { href: "/analytics",  label: "Analytics",  icon: BarChart3 },
-  { href: "/leaderboard",label: "Leaderboard",icon: Trophy },
-  { href: "/history",    label: "History",    icon: History },
+  { href: "/app",         label: "Dashboard",   icon: LayoutDashboard },
+  { href: "/vault",       label: "Vault",        icon: Vault },
+  { href: "/portfolio",   label: "Portfolio",    icon: TrendingUp },
+  { href: "/earn",        label: "Earn",         icon: TrendingUp },
+  { href: "/swap",        label: "Swap",         icon: ArrowLeftRight },
+  { href: "/governance",  label: "Governance",   icon: Vote },
+  { href: "/analytics",   label: "Analytics",    icon: BarChart3 },
+  { href: "/leaderboard", label: "Leaderboard",  icon: Trophy },
+  { href: "/history",     label: "History",      icon: History },
 ];
 
 const SECONDARY_NAV: NavItem[] = [
-  { href: "/docs",       label: "Docs",       icon: BookOpen },
-  { href: "/settings",   label: "Settings",   icon: Settings },
+  { href: "/docs",      label: "Docs",        icon: BookOpen },
+  { href: "/settings",  label: "Settings",    icon: Settings },
   { href: "https://bridge.mezo.org", label: "Mezo Bridge", icon: ExternalLink, external: true },
 ];
 
@@ -97,7 +100,8 @@ function NavLink({ item, isActive, collapsed, onClick }: {
 export function DAppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { sidebarCollapsed, toggleSidebar, mobileSidebarOpen, toggleMobileSidebar, closeMobileSidebar } = useAppStore();
-  const { isConnected, address, connect, disconnect } = useWallet();
+  const { isConnected, address, disconnect } = useWalletConnection();
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
 
   useEffect(() => { closeMobileSidebar(); }, [location]);
 
@@ -190,16 +194,13 @@ export function DAppLayout({ children }: { children: React.ReactNode }) {
             </div>
 
             {isConnected ? (
-              <Button
-                variant="outline"
-                onClick={disconnect}
-                className="font-mono text-xs bg-black/40 border-white/10 hover:bg-white/5 hover:text-destructive transition-colors"
-              >
-                <Wallet className="h-4 w-4 mr-2" />
-                {address}
-              </Button>
+              <AccountDisplay />
             ) : (
-              <Button onClick={connect} className="font-mono text-xs bg-primary text-primary-foreground hover:bg-primary/90">
+              <Button
+                onClick={() => setWalletModalOpen(true)}
+                className="font-semibold text-sm bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
+              >
+                <Wallet className="h-4 w-4" />
                 Connect Wallet
               </Button>
             )}
@@ -255,13 +256,13 @@ export function DAppLayout({ children }: { children: React.ReactNode }) {
             </div>
 
             {/* User info */}
-            {isConnected && (
+            {isConnected && address && (
               <div className="px-4 py-3 border-b border-white/8 flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center">
                   <User className="h-4 w-4 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm font-medium font-mono truncate">{address}</p>
+                  <p className="text-sm font-medium font-mono truncate">{shortenAddress(address, 4)}</p>
                   <p className="text-xs text-muted-foreground">Connected · Mainnet</p>
                 </div>
               </div>
@@ -289,18 +290,17 @@ export function DAppLayout({ children }: { children: React.ReactNode }) {
             </nav>
 
             <div className="p-4 border-t border-white/8 space-y-2">
-              {isConnected && (
+              {isConnected ? (
                 <button
                   onClick={() => { disconnect(); closeMobileSidebar(); }}
                   className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-red-400 hover:bg-red-400/10 transition text-sm"
                 >
-                  <LogOut className="h-4 w-4" />
+                  <Wallet className="h-4 w-4" />
                   Disconnect Wallet
                 </button>
-              )}
-              {!isConnected && (
+              ) : (
                 <button
-                  onClick={() => { connect(); closeMobileSidebar(); }}
+                  onClick={() => { closeMobileSidebar(); setWalletModalOpen(true); }}
                   className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium"
                 >
                   <Wallet className="h-4 w-4" />
@@ -312,6 +312,9 @@ export function DAppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       )}
+
+      {/* ── Wallet Connect Modal ── */}
+      <WalletModal open={walletModalOpen} onClose={() => setWalletModalOpen(false)} />
     </div>
   );
 }
