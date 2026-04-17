@@ -6,12 +6,38 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
 
+import { DAppLayout } from "@/components/dapp/DAppLayout";
+import Dashboard from "@/pages/dashboard";
+import Vault from "@/pages/vault";
+import Stats from "@/pages/stats";
+import Docs from "@/pages/docs";
+
 const queryClient = new QueryClient();
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/app">
+        <DAppLayout>
+          <Dashboard />
+        </DAppLayout>
+      </Route>
+      <Route path="/vault">
+        <DAppLayout>
+          <Vault />
+        </DAppLayout>
+      </Route>
+      <Route path="/stats">
+        <DAppLayout>
+          <Stats />
+        </DAppLayout>
+      </Route>
+      <Route path="/docs">
+        <DAppLayout>
+          <Docs />
+        </DAppLayout>
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );

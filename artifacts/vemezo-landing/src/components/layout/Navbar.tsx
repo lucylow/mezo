@@ -20,9 +20,11 @@ export function Navbar() {
           <Button variant="outline" className="hidden sm:flex font-mono text-xs border-border bg-transparent hover:bg-secondary">
             Connect Wallet
           </Button>
-          <Button className="font-mono text-xs bg-primary text-primary-foreground hover:bg-primary/90">
-            Launch App
-          </Button>
+          <Link href="/app">
+            <Button className="font-mono text-xs bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer">
+              Launch App
+            </Button>
+          </Link>
         </div>
       </div>
     </nav>
