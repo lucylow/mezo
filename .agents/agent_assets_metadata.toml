@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "GryEhdV663QwixKAeEWy9"
+uri = "file://artifacts/vemezo-landing/src/assets/hero-bg.png"
+type = "image"
+title = "Abstract technical DeFi background"
