@@ -1,7 +1,16 @@
+import { useState } from "react";
+import { useAccount } from "wagmi";
+import { parseEther } from "viem";
 import { useUserPosition } from "@/hooks/useUserPosition";
 import { useVaultStats } from "@/hooks/useVaultStats";
 import { useWallet } from "@/hooks/useWallet";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { useDeposit, useWithdraw } from "@/hooks/contracts/useVaultWrite";
+import { useVeMEZONFTs } from "@/hooks/contracts/useVeMEZOData";
+import { useVaultEvents } from "@/hooks/useContractEvents";
+import { useTransactionToast } from "@/hooks/useTransactionToast";
+import { ContractErrorBoundary } from "@/components/ContractErrorBoundary";
+import { isContractDeployed } from "@/lib/contracts";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,25 +19,93 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/Badge";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
-import { Info, Lock, ArrowDownToLine, ArrowUpFromLine, ShieldCheck, TrendingUp } from "lucide-react";
+import { Info, Lock, ArrowDownToLine, ArrowUpFromLine, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { pageTransition, staggerContainer, staggerItem, cardHoverProps } from "@/lib/animations";
 
-const mockAvailableNFTs = [
+const MOCK_AVAILABLE_NFTS = [
   { id: "4092", amount: 1200, unlockDate: "2026-01-01" },
-  { id: "8821", amount: 450, unlockDate: "2025-10-15" },
+  { id: "8821", amount: 450,  unlockDate: "2025-10-15" },
 ];
 
 export default function Vault() {
+  const { address } = useAccount();
   const { isConnected } = useWallet();
   const position = useUserPosition();
-  const stats = useVaultStats();
+  const stats    = useVaultStats();
+  const deployed = isContractDeployed();
 
+  // ── Contract write hooks ────────────────────────────────────────────────
+  const { deposit, depositBatch, isPending: isDepositing } = useDeposit();
+  const { withdraw, withdrawByShares, isPending: isWithdrawing } = useWithdraw();
+
+  // ── Real-time event watcher (no-op pre-deployment) ──────────────────────
+  useVaultEvents();
+
+  // ── Wallet-owned NFTs (on-chain; falls back gracefully) ─────────────────
+  const { nfts: walletNFTs, isLoading: nftsLoading } = useVeMEZONFTs(address);
+
+  // Available NFTs: on-chain if deployed, else mock
+  const availableNFTs = deployed && walletNFTs.length > 0
+    ? walletNFTs
+        .filter(n => !position.tokenIds.includes(n.tokenId.toString()))
+        .map(n => ({
+          id:         n.tokenId.toString(),
+          amount:     Number(n.valueFormatted),
+          unlockDate: n.lockEnd.toISOString().slice(0, 10),
+        }))
+    : MOCK_AVAILABLE_NFTS;
+
+  // ── Form state ──────────────────────────────────────────────────────────
+  const [selectedNFT,    setSelectedNFT]    = useState<string>("");
+  const [withdrawAmount, setWithdrawAmount] = useState<string>("");
+  const [depositHash,    setDepositHash]    = useState<`0x${string}` | undefined>();
+  const [withdrawHash,   setWithdrawHash]   = useState<`0x${string}` | undefined>();
+
+  // Transaction toasts — auto-fires sonner on confirm/fail
+  useTransactionToast({ hash: depositHash });
+  useTransactionToast({ hash: withdrawHash });
+
+  const handleDeposit = async () => {
+    if (!selectedNFT || !deployed) return;
+    try {
+      const hash = await deposit(BigInt(selectedNFT));
+      if (hash) setDepositHash(hash);
+      setSelectedNFT("");
+    } catch {
+      // toast already fired by useDeposit
+    }
+  };
+
+  const handleWithdraw = async () => {
+    if (!withdrawAmount || !deployed) return;
+    try {
+      const shares = parseEther(withdrawAmount);
+      const hash   = await withdrawByShares(shares);
+      if (hash) setWithdrawHash(hash);
+      setWithdrawAmount("");
+    } catch {
+      // toast already fired by useWithdraw
+    }
+  };
+
+  const handleWithdrawNFT = async (tokenId: string) => {
+    if (!deployed) return;
+    try {
+      const hash = await withdraw(BigInt(tokenId));
+      if (hash) setWithdrawHash(hash);
+    } catch {
+      // toast already fired
+    }
+  };
+
+  // ── Chart data ──────────────────────────────────────────────────────────
+  const userShareCount = isConnected ? position.shares : 0;
+  const othersShares   = Math.max(0, stats.totalShares - userShareCount);
   const shareData = [
-    { name: "Your Shares", value: isConnected ? position.shares : 0 },
-    { name: "Others", value: stats.totalShares - (isConnected ? position.shares : 0) },
+    { name: "Your Shares", value: userShareCount },
+    { name: "Others",      value: othersShares },
   ];
-  
   const COLORS = ["hsl(var(--primary))", "rgba(255,255,255,0.1)"];
 
   return (
@@ -41,113 +118,197 @@ export default function Vault() {
     >
       <div>
         <h2 className="text-2xl font-bold tracking-tight">Vault Management</h2>
-        <p className="text-sm text-muted-foreground">Deposit veMEZO NFTs or withdraw your shares.</p>
+        <p className="text-sm text-muted-foreground">Deposit veMEZO NFTs to earn auto-compounded rewards.</p>
       </div>
+
+      {/* Pre-deployment notice */}
+      {!deployed && (
+        <div className="flex items-start gap-3 rounded-xl border border-yellow-500/20 bg-yellow-500/5 px-4 py-3 text-sm">
+          <AlertCircle className="h-4 w-4 mt-0.5 text-yellow-400 shrink-0" />
+          <div>
+            <span className="text-yellow-300 font-medium">Testnet preview</span>
+            <span className="text-yellow-300/70 ml-1">— Contract not yet deployed. Set <code className="font-mono text-yellow-300/90">VITE_VAULT_ADDRESS</code> to enable live transactions.</span>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-6 md:grid-cols-3">
         <div className="md:col-span-2">
-          <Card className="bg-black/40 backdrop-blur-sm border-white/10 rounded-2xl h-full">
-            <CardHeader>
-              <CardTitle>Manage Position</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="deposit" className="w-full">
-                <TabsList className="grid w-full grid-cols-2 bg-black/50 border border-white/10 p-1 rounded-xl h-12">
-                  <TabsTrigger value="deposit" className="rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground transition-all">
-                    <ArrowDownToLine className="w-4 h-4 mr-2" />
-                    Deposit
-                  </TabsTrigger>
-                  <TabsTrigger value="withdraw" className="rounded-lg data-[state=active]:bg-white/10 data-[state=active]:text-foreground transition-all">
-                    <ArrowUpFromLine className="w-4 h-4 mr-2" />
-                    Withdraw
-                  </TabsTrigger>
-                </TabsList>
-                
-                <TabsContent value="deposit" className="mt-6 space-y-6">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>Select veMEZO NFT</Label>
-                      <Select disabled={!isConnected || mockAvailableNFTs.length === 0}>
-                        <SelectTrigger className="w-full bg-black/40 border-white/10 h-12">
-                          <SelectValue placeholder={isConnected ? "Select NFT to deposit" : "Connect wallet to view NFTs"} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {mockAvailableNFTs.map(nft => (
-                            <SelectItem key={nft.id} value={nft.id}>
-                              NFT #{nft.id} - {nft.amount} MEZO (Locks until {nft.unlockDate})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1 mt-2">
-                        <Info className="w-3 h-3" />
-                        Depositing an NFT transfers it to the Vault contract.
-                      </p>
-                    </div>
-
-                    <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Estimated Shares Received:</span>
-                        <span className="font-medium font-mono">0.00</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Share Price:</span>
-                        <span className="font-medium font-mono">1 Share = 1.05 MEZO</span>
-                      </div>
-                    </div>
-
-                    <Button className="w-full h-12 text-lg" disabled={!isConnected}>
-                      {isConnected ? "Deposit NFT" : "Connect Wallet"}
-                    </Button>
-                  </div>
-                </TabsContent>
-                
-                <TabsContent value="withdraw" className="mt-6 space-y-6">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <Label>Shares to Withdraw</Label>
-                        <span className="text-xs text-muted-foreground">Balance: {position.shares} Shares</span>
-                      </div>
-                      <div className="relative">
-                        <Input 
-                          type="number" 
-                          placeholder="0.00" 
-                          className="bg-black/40 border-white/10 h-12 pr-16 text-lg font-mono"
-                          disabled={!isConnected}
-                        />
-                        <Button 
-                          variant="ghost" 
-                          className="absolute right-1 top-1 h-10 text-xs text-primary hover:text-primary hover:bg-primary/10"
-                          disabled={!isConnected}
-                        >
-                          MAX
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Estimated MEZO Output:</span>
-                        <span className="font-medium font-mono">0.00</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Withdrawal Fee:</span>
-                        <span className="font-medium font-mono">0%</span>
-                      </div>
-                    </div>
-
-                    <Button variant="outline" className="w-full h-12 text-lg border-white/10 hover:bg-white/5" disabled={!isConnected}>
+          <ContractErrorBoundary>
+            <Card className="bg-black/40 backdrop-blur-sm border-white/10 rounded-2xl h-full">
+              <CardHeader>
+                <CardTitle>Manage Position</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Tabs defaultValue="deposit" className="w-full">
+                  <TabsList className="grid w-full grid-cols-2 bg-black/50 border border-white/10 p-1 rounded-xl h-12">
+                    <TabsTrigger value="deposit" className="rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground transition-all">
+                      <ArrowDownToLine className="w-4 h-4 mr-2" />
+                      Deposit
+                    </TabsTrigger>
+                    <TabsTrigger value="withdraw" className="rounded-lg data-[state=active]:bg-white/10 data-[state=active]:text-foreground transition-all">
+                      <ArrowUpFromLine className="w-4 h-4 mr-2" />
                       Withdraw
-                    </Button>
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
+                    </TabsTrigger>
+                  </TabsList>
+
+                  {/* ── Deposit tab ──────────────────────────────────────── */}
+                  <TabsContent value="deposit" className="mt-6 space-y-6">
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Select veMEZO NFT</Label>
+                        <Select
+                          value={selectedNFT}
+                          onValueChange={setSelectedNFT}
+                          disabled={!isConnected || availableNFTs.length === 0 || nftsLoading}
+                        >
+                          <SelectTrigger className="w-full bg-black/40 border-white/10 h-12">
+                            <SelectValue
+                              placeholder={
+                                !isConnected   ? "Connect wallet to view NFTs"
+                                : nftsLoading  ? "Loading NFTs…"
+                                : availableNFTs.length === 0 ? "No NFTs available"
+                                : "Select NFT to deposit"
+                              }
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableNFTs.map(nft => (
+                              <SelectItem key={nft.id} value={nft.id}>
+                                NFT #{nft.id} — {nft.amount.toLocaleString()} MEZO (unlocks {nft.unlockDate})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground flex items-center gap-1 mt-2">
+                          <Info className="w-3 h-3" />
+                          Depositing transfers the NFT to the vault contract.
+                        </p>
+                      </div>
+
+                      <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Estimated Shares Received:</span>
+                          <span className="font-medium font-mono">
+                            {selectedNFT
+                              ? (availableNFTs.find(n => n.id === selectedNFT)?.amount ?? 0).toFixed(2)
+                              : "0.00"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Performance Fee:</span>
+                          <span className="font-medium font-mono">{stats.performanceFee}%</span>
+                        </div>
+                      </div>
+
+                      <Button
+                        className="w-full h-12 text-lg"
+                        onClick={handleDeposit}
+                        disabled={!isConnected || !selectedNFT || !deployed || isDepositing}
+                      >
+                        {isDepositing ? (
+                          <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Depositing…</>
+                        ) : isConnected ? (
+                          deployed ? "Deposit NFT" : "Deposit NFT (preview)"
+                        ) : "Connect Wallet"}
+                      </Button>
+                    </div>
+                  </TabsContent>
+
+                  {/* ── Withdraw tab ─────────────────────────────────────── */}
+                  <TabsContent value="withdraw" className="mt-6 space-y-6">
+                    <div className="space-y-4">
+                      {/* Withdraw by shares */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <Label>Shares to Withdraw</Label>
+                          <button
+                            className="text-xs text-muted-foreground hover:text-primary transition-colors"
+                            onClick={() => setWithdrawAmount(String(position.shares))}
+                          >
+                            Balance: {position.shares.toLocaleString()} vveMEZO
+                          </button>
+                        </div>
+                        <div className="relative">
+                          <Input
+                            type="number"
+                            placeholder="0.00"
+                            value={withdrawAmount}
+                            onChange={e => setWithdrawAmount(e.target.value)}
+                            className="bg-black/40 border-white/10 h-12 pr-16 text-lg font-mono"
+                            disabled={!isConnected}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-1 top-1 h-10 text-xs text-primary hover:text-primary hover:bg-primary/10"
+                            onClick={() => setWithdrawAmount(String(position.shares))}
+                            disabled={!isConnected}
+                          >
+                            MAX
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Estimated MEZO Output:</span>
+                          <span className="font-medium font-mono">
+                            {withdrawAmount ? (Number(withdrawAmount) * 1.05).toFixed(2) : "0.00"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Withdrawal Fee:</span>
+                          <span className="font-medium font-mono text-green-400">0%</span>
+                        </div>
+                      </div>
+
+                      <Button
+                        variant="outline"
+                        className="w-full h-12 text-lg border-white/10 hover:bg-white/5"
+                        onClick={handleWithdraw}
+                        disabled={!isConnected || !withdrawAmount || !deployed || isWithdrawing}
+                      >
+                        {isWithdrawing ? (
+                          <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Withdrawing…</>
+                        ) : "Withdraw Shares"}
+                      </Button>
+
+                      {/* Withdraw individual NFTs */}
+                      {isConnected && position.nftsLocked.length > 0 && (
+                        <div className="pt-2">
+                          <Label className="text-xs text-muted-foreground mb-2 block">Or withdraw a specific NFT</Label>
+                          <div className="space-y-2">
+                            {position.nftsLocked.map(nft => (
+                              <div key={nft.id} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+                                <div>
+                                  <p className="text-sm font-medium text-primary font-mono">#{nft.id}</p>
+                                  <p className="text-xs text-muted-foreground">Locked: {nft.unlockDate}</p>
+                                </div>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="border-white/10 hover:bg-white/5 h-8 text-xs"
+                                  onClick={() => handleWithdrawNFT(nft.id)}
+                                  disabled={!deployed || isWithdrawing}
+                                >
+                                  Withdraw
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+          </ContractErrorBoundary>
         </div>
 
         <div className="space-y-6">
+          {/* Pool ownership donut */}
           <Card className="bg-black/40 backdrop-blur-sm border-white/10 rounded-2xl">
             <CardHeader>
               <CardTitle className="text-lg">Pool Ownership</CardTitle>
@@ -166,26 +327,29 @@ export default function Vault() {
                       dataKey="value"
                       stroke="none"
                     >
-                      {shareData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      {shareData.map((_, index) => (
+                        <Cell key={index} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
-                    <RechartsTooltip 
-                      contentStyle={{ backgroundColor: '#050608', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                      itemStyle={{ color: '#fff' }}
+                    <RechartsTooltip
+                      contentStyle={{ backgroundColor: "#050608", borderColor: "rgba(255,255,255,0.1)", borderRadius: "8px" }}
+                      itemStyle={{ color: "#fff" }}
                     />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
               <div className="text-center mt-2 space-y-1">
                 <p className="text-3xl font-bold font-mono">
-                  {isConnected && stats.totalShares > 0 ? ((position.shares / stats.totalShares) * 100).toFixed(2) : "0.00"}%
+                  {isConnected && stats.totalShares > 0
+                    ? ((userShareCount / stats.totalShares) * 100).toFixed(2)
+                    : "0.00"}%
                 </p>
                 <p className="text-sm text-muted-foreground">of Total Vault Shares</p>
               </div>
             </CardContent>
           </Card>
 
+          {/* Active NFTs */}
           <Card className="bg-black/40 backdrop-blur-sm border-white/10 rounded-2xl">
             <CardHeader>
               <CardTitle className="text-lg">Active NFTs in Vault</CardTitle>
@@ -206,12 +370,37 @@ export default function Vault() {
                         <p className="text-xs text-muted-foreground">Locked: {nft.unlockDate}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-medium">{nft.amount} MEZO</p>
+                        <p className="text-sm font-medium">{nft.amount.toLocaleString()} MEZO</p>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Vault stats mini-card */}
+          <Card className="bg-black/40 backdrop-blur-sm border-white/10 rounded-2xl">
+            <CardHeader>
+              <CardTitle className="text-lg">Vault Stats</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {[
+                { label: "Total Shares",  value: stats.totalShares.toLocaleString() },
+                { label: "Perf. Fee",     value: `${stats.performanceFee}%` },
+                { label: "Pending Rewards", value: `${stats.pendingRewards.toLocaleString()} MEZO` },
+              ].map(item => (
+                <div key={item.label} className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">{item.label}</span>
+                  <span className="font-medium font-mono">{item.value}</span>
+                </div>
+              ))}
+              <div className="flex items-center gap-1.5 pt-1">
+                <div className={`w-2 h-2 rounded-full ${deployed ? "bg-green-400" : "bg-yellow-400"}`} />
+                <span className="text-xs text-muted-foreground">
+                  {deployed ? "Live on-chain" : `Mock data (${stats.source})`}
+                </span>
+              </div>
             </CardContent>
           </Card>
         </div>

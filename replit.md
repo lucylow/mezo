@@ -77,9 +77,32 @@ artifacts/
       AccountDisplay.tsx – Radix DropdownMenu when connected
     hooks/wallet/
       useWalletConnection.ts – wagmi hook wrapper
+    hooks/contracts/
+      useVaultRead.ts    – wagmi useReadContracts (on-chain vault + user data, zero-addr guard)
+      useVaultWrite.ts   – useDeposit, useWithdraw, useWithdrawByShares, useCompound (wagmi)
+      useVeMEZOData.ts   – useVeMEZONFTs, useVeMEZOApproval (wallet-owned NFT enumeration)
+    hooks/api/
+      useVaultAPI.ts     – TanStack Query hooks: useVaultAPIStats, useVaultAPIHistory,
+                           useUserAPIPosition, useVaultActivityFeed, useKeeperStatus
+    hooks/
+      useVaultStats.ts   – Unified hook: on-chain → API → mock fallback
+      useUserPosition.ts – Unified hook: on-chain → API → mock fallback
+      useTransactionToast.ts – Sonner toasts wired to useWaitForTransactionReceipt
+      useContractEvents.ts   – useWatchContractEvent for Deposited/Withdrawn/Compounded
+      useKeeper.ts           – useTriggerCompound (POST /api/keeper/compound)
+    store/
+      transactionStore.ts – Zustand transaction history with persist middleware
     lib/
+      contracts/
+        index.ts         – CONTRACTS addresses (VITE_* env vars), isContractDeployed()
+        abis/VeMEZOVault.ts – Full vault ABI (reads, writes, events)
+        abis/VeMEZO.ts   – veMEZO NFT ABI
+      api/client.ts      – Typed fetch client for Express API
+      retry.ts           – withRetry() exponential backoff utility
       animations.ts      – Framer Motion presets
       utils.ts           – formatNumber, formatDate, shortenAddress, cn
+    components/
+      ContractErrorBoundary.tsx – React error boundary for contract interaction sections
 ```
 
 ## Chain Info
