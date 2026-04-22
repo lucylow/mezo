@@ -7,8 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/Badge";
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
-import { Info, Lock, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
+import { Info, Lock, ArrowDownToLine, ArrowUpFromLine, ShieldCheck, TrendingUp } from "lucide-react";
+import { motion } from "framer-motion";
+import { pageTransition, staggerContainer, staggerItem, cardHoverProps } from "@/lib/animations";
 
 const mockAvailableNFTs = [
   { id: "4092", amount: 1200, unlockDate: "2026-01-01" },
@@ -28,7 +32,13 @@ export default function Vault() {
   const COLORS = ["hsl(var(--primary))", "rgba(255,255,255,0.1)"];
 
   return (
-    <div className="space-y-6">
+    <motion.div
+      variants={pageTransition}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      className="space-y-6"
+    >
       <div>
         <h2 className="text-2xl font-bold tracking-tight">Vault Management</h2>
         <p className="text-sm text-muted-foreground">Deposit veMEZO NFTs or withdraw your shares.</p>
@@ -206,6 +216,6 @@ export default function Vault() {
           </Card>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

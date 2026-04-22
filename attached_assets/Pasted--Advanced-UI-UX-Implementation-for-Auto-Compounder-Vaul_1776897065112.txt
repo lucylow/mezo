@@ -1,0 +1,2692 @@
+# Advanced UI/UX Implementation for Auto‑Compounder Vault
+
+This document provides a comprehensive, production‑ready UI/UX implementation for the **Auto‑Compounder Vault for veMEZO Rewards**. It covers the complete design system, advanced component library, animation patterns, responsive architecture, accessibility features, and user experience enhancements that transform the application into a polished, professional DeFi dashboard.
+
+All code is written in **TypeScript** with **React 18**, **Next.js 14 (App Router)**, **Tailwind CSS**, and **Framer Motion**. The implementation follows best practices for performance, accessibility (WCAG 2.2 AA), and responsive design.
+
+---
+
+## Table of Contents
+
+1. [Design System Foundation](#1-design-system-foundation)
+2. [Advanced Component Library](#2-advanced-component-library)
+3. [Animation System & Micro‑interactions](#3-animation-system--micro-interactions)
+4. [Layout & Responsive Architecture](#4-layout--responsive-architecture)
+5. [Loading States & Skeleton Screens](#5-loading-states--skeleton-screens)
+6. [Form Components & Validation](#6-form-components--validation)
+7. [Data Visualization Components](#7-data-visualization-components)
+8. [Notification & Toast System](#8-notification--toast-system)
+9. [Modal & Dialog System](#9-modal--dialog-system)
+10. [Tooltips, Popovers & Dropdowns](#10-tooltips-popovers--dropdowns)
+11. [Accessibility Implementation](#11-accessibility-implementation)
+12. [Theme Switching & Dark Mode](#12-theme-switching--dark-mode)
+13. [Onboarding & Guided Tours](#13-onboarding--guided-tours)
+14. [Performance Optimizations](#14-performance-optimizations)
+15. [Mobile‑First Responsive Utilities](#15-mobile-first-responsive-utilities)
+16. [Advanced Interactive Demos](#16-advanced-interactive-demos)
+
+---
+
+## 1. Design System Foundation
+
+### 1.1 Design Tokens (`lib/design-tokens.ts`)
+
+```typescript
+// lib/design-tokens.ts
+export const tokens = {
+  colors: {
+    // Brand
+    primary: {
+      50: '#FFF5E6',
+      100: '#FFE6B3',
+      200: '#FFD780',
+      300: '#FFC84D',
+      400: '#FFB91A',
+      500: '#F5A623', // Base
+      600: '#CC8800',
+      700: '#996600',
+      800: '#664400',
+      900: '#332200',
+    },
+    secondary: {
+      50: '#EBF2FF',
+      100: '#C7D9FE',
+      200: '#A3C0FD',
+      300: '#7FA7FC',
+      400: '#5B8EFB',
+      500: '#3B82F6', // Base
+      600: '#2563EB',
+      700: '#1D4ED8',
+      800: '#1E40AF',
+      900: '#1E3A8A',
+    },
+    accent: {
+      50: '#E6F9F0',
+      100: '#B3EDD1',
+      200: '#80E1B3',
+      300: '#4DD594',
+      400: '#1AC975',
+      500: '#10B981', // Base
+      600: '#059669',
+      700: '#047857',
+      800: '#065F46',
+      900: '#064E3B',
+    },
+    // Neutrals
+    gray: {
+      50: '#F9FAFB',
+      100: '#F3F4F6',
+      200: '#E5E7EB',
+      300: '#D1D5DB',
+      400: '#9CA3AF',
+      500: '#6B7280',
+      600: '#4B5563',
+      700: '#374151',
+      800: '#1F2937',
+      900: '#111827',
+      950: '#0A0B0D',
+    },
+    // Semantic
+    success: '#10B981',
+    warning: '#F59E0B',
+    error: '#EF4444',
+    info: '#3B82F6',
+    // Backgrounds
+    bg: {
+      primary: '#0A0B0D',
+      secondary: '#050608',
+      elevated: 'rgba(20, 22, 26, 0.8)',
+      overlay: 'rgba(0, 0, 0, 0.6)',
+    },
+    border: {
+      default: 'rgba(255, 255, 255, 0.08)',
+      strong: 'rgba(255, 255, 255, 0.12)',
+      accent: 'rgba(245, 166, 35, 0.3)',
+    },
+  },
+  spacing: {
+    0: '0',
+    1: '0.25rem',
+    2: '0.5rem',
+    3: '0.75rem',
+    4: '1rem',
+    5: '1.25rem',
+    6: '1.5rem',
+    8: '2rem',
+    10: '2.5rem',
+    12: '3rem',
+    16: '4rem',
+    20: '5rem',
+    24: '6rem',
+  },
+  typography: {
+    fontFamily: {
+      sans: 'var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      mono: 'var(--font-jetbrains-mono), "SF Mono", Monaco, "Cascadia Code", monospace',
+    },
+    fontSize: {
+      xs: ['0.75rem', { lineHeight: '1rem' }],
+      sm: ['0.875rem', { lineHeight: '1.25rem' }],
+      base: ['1rem', { lineHeight: '1.5rem' }],
+      lg: ['1.125rem', { lineHeight: '1.75rem' }],
+      xl: ['1.25rem', { lineHeight: '1.75rem' }],
+      '2xl': ['1.5rem', { lineHeight: '2rem' }],
+      '3xl': ['1.875rem', { lineHeight: '2.25rem' }],
+      '4xl': ['2.25rem', { lineHeight: '2.5rem' }],
+      '5xl': ['3rem', { lineHeight: '1' }],
+      '6xl': ['3.75rem', { lineHeight: '1' }],
+    },
+    fontWeight: {
+      normal: '400',
+      medium: '500',
+      semibold: '600',
+      bold: '700',
+    },
+  },
+  borderRadius: {
+    none: '0',
+    sm: '0.25rem',
+    DEFAULT: '0.5rem',
+    md: '0.75rem',
+    lg: '1rem',
+    xl: '1.25rem',
+    '2xl': '1.5rem',
+    '3xl': '2rem',
+    full: '9999px',
+  },
+  shadows: {
+    sm: '0 1px 2px 0 rgb(0 0 0 / 0.05)',
+    DEFAULT: '0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)',
+    md: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
+    lg: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)',
+    xl: '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)',
+    '2xl': '0 25px 50px -12px rgb(0 0 0 / 0.25)',
+    glow: '0 0 20px rgba(245, 166, 35, 0.3)',
+    'glow-lg': '0 0 40px rgba(245, 166, 35, 0.4)',
+  },
+  transitions: {
+    fast: '150ms',
+    DEFAULT: '200ms',
+    slow: '300ms',
+    slower: '500ms',
+  },
+  zIndex: {
+    hide: -1,
+    auto: 'auto',
+    base: 0,
+    docked: 10,
+    dropdown: 1000,
+    sticky: 1100,
+    banner: 1200,
+    overlay: 1300,
+    modal: 1400,
+    popover: 1500,
+    skipLink: 1600,
+    toast: 1700,
+    tooltip: 1800,
+  },
+} as const;
+
+export type DesignTokens = typeof tokens;
+```
+
+### 1.2 Tailwind Configuration with Design Tokens
+
+```javascript
+// tailwind.config.ts
+import type { Config } from 'tailwindcss';
+import { tokens } from './lib/design-tokens';
+
+const config: Config = {
+  darkMode: 'class',
+  content: [
+    './pages/**/*.{ts,tsx}',
+    './components/**/*.{ts,tsx}',
+    './app/**/*.{ts,tsx}',
+  ],
+  theme: {
+    extend: {
+      colors: {
+        mezo: tokens.colors,
+        card: tokens.colors.bg.elevated,
+        border: tokens.colors.border.default,
+      },
+      spacing: tokens.spacing,
+      fontFamily: tokens.typography.fontFamily,
+      fontSize: tokens.typography.fontSize,
+      fontWeight: tokens.typography.fontWeight,
+      borderRadius: tokens.borderRadius,
+      boxShadow: tokens.shadows,
+      transitionDuration: tokens.transitions,
+      zIndex: tokens.zIndex,
+      animation: {
+        'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'float': 'float 6s ease-in-out infinite',
+        'shimmer': 'shimmer 2s linear infinite',
+        'slide-up': 'slideUp 0.3s ease-out',
+        'slide-down': 'slideDown 0.3s ease-out',
+        'fade-in': 'fadeIn 0.2s ease-out',
+        'scale-in': 'scaleIn 0.2s ease-out',
+        'spin-slow': 'spin 3s linear infinite',
+        'glow-pulse': 'glowPulse 2s ease-in-out infinite',
+      },
+      keyframes: {
+        float: {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-10px)' },
+        },
+        shimmer: {
+          '0%': { backgroundPosition: '200% 0' },
+          '100%': { backgroundPosition: '-200% 0' },
+        },
+        slideUp: {
+          '0%': { transform: 'translateY(10px)', opacity: '0' },
+          '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
+        slideDown: {
+          '0%': { transform: 'translateY(-10px)', opacity: '0' },
+          '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        scaleIn: {
+          '0%': { transform: 'scale(0.95)', opacity: '0' },
+          '100%': { transform: 'scale(1)', opacity: '1' },
+        },
+        glowPulse: {
+          '0%, 100%': { boxShadow: '0 0 20px rgba(245, 166, 35, 0.3)' },
+          '50%': { boxShadow: '0 0 40px rgba(245, 166, 35, 0.6)' },
+        },
+      },
+      backgroundImage: {
+        'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
+        'gradient-conic': 'conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))',
+        'gradient-primary': 'linear-gradient(to right, #F5A623, #3B82F6)',
+        'gradient-accent': 'linear-gradient(to right, #10B981, #3B82F6)',
+        'gradient-card': 'linear-gradient(135deg, rgba(20, 22, 26, 0.9) 0%, rgba(20, 22, 26, 0.6) 100%)',
+      },
+    },
+  },
+  plugins: [
+    require('@tailwindcss/forms'),
+    require('@tailwindcss/typography'),
+    require('@tailwindcss/aspect-ratio'),
+    require('@tailwindcss/container-queries'),
+  ],
+};
+
+export default config;
+```
+
+### 1.3 CSS Variables & Global Styles
+
+```css
+/* app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 4%;
+    --foreground: 0 0% 98%;
+    --card: 220 10% 10%;
+    --card-foreground: 0 0% 98%;
+    --popover: 220 10% 8%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 36 94% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 91% 60%;
+    --secondary-foreground: 0 0% 100%;
+    --accent: 160 84% 39%;
+    --accent-foreground: 0 0% 100%;
+    --muted: 220 10% 20%;
+    --muted-foreground: 220 10% 60%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 10% 18%;
+    --input: 220 10% 15%;
+    --ring: 36 94% 55%;
+    --radius: 0.75rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-mezo-dark text-gray-100 antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1, "ss02" 1;
+  }
+
+  /* Focus styles for accessibility */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-mezo-primary ring-offset-2 ring-offset-mezo-dark;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-mezo-darker;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-mezo-muted/30 rounded-full hover:bg-mezo-muted/50 transition-colors;
+  }
+
+  /* Selection color */
+  ::selection {
+    @apply bg-mezo-primary/30 text-white;
+  }
+}
+
+@layer components {
+  /* Glass morphism card */
+  .glass {
+    @apply bg-card backdrop-blur-xl border border-border rounded-2xl;
+  }
+
+  /* Gradient text */
+  .text-gradient {
+    @apply bg-gradient-to-r from-mezo-primary to-mezo-secondary bg-clip-text text-transparent;
+  }
+
+  /* Animated underline */
+  .link-underline {
+    @apply relative after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:bg-mezo-primary after:transition-all after:duration-300 hover:after:w-full;
+  }
+
+  /* Stat value style */
+  .stat-value {
+    @apply text-3xl md:text-4xl font-bold tracking-tight;
+  }
+
+  .stat-label {
+    @apply text-sm text-mezo-muted uppercase tracking-wider;
+  }
+
+  /* Card hover effect */
+  .card-hover {
+    @apply transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:border-mezo-primary/30;
+  }
+
+  /* Shimmer loading effect */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.05) 50%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+}
+
+@layer utilities {
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Text balance for better typography */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Safe area padding for mobile */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+```
+
+---
+
+## 2. Advanced Component Library
+
+### 2.1 Button Component with Variants & Loading States
+
+```tsx
+// components/ui/Button.tsx
+'use client';
+
+import { forwardRef, ButtonHTMLAttributes } from 'react';
+import { cva, type VariantProps } from 'class-variance-authority';
+import { cn } from '@/lib/utils';
+import { Loader2 } from 'lucide-react';
+import { motion, HTMLMotionProps } from 'framer-motion';
+
+const buttonVariants = cva(
+  'inline-flex items-center justify-center rounded-xl font-semibold transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mezo-primary focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98]',
+  {
+    variants: {
+      variant: {
+        primary: 'bg-gradient-to-r from-mezo-primary to-mezo-secondary text-white shadow-lg hover:shadow-xl hover:opacity-90',
+        secondary: 'bg-card border border-border text-white hover:bg-white/5',
+        outline: 'border border-mezo-primary text-mezo-primary hover:bg-mezo-primary/10',
+        ghost: 'text-mezo-muted hover:text-white hover:bg-white/5',
+        danger: 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30',
+        success: 'bg-mezo-accent/20 text-mezo-accent border border-mezo-accent/30 hover:bg-mezo-accent/30',
+      },
+      size: {
+        xs: 'h-8 px-3 text-xs',
+        sm: 'h-9 px-4 text-sm',
+        md: 'h-11 px-6 text-base',
+        lg: 'h-14 px-8 text-lg',
+        xl: 'h-16 px-10 text-xl',
+        icon: 'h-10 w-10',
+      },
+      fullWidth: {
+        true: 'w-full',
+      },
+      rounded: {
+        true: 'rounded-full',
+      },
+    },
+    defaultVariants: {
+      variant: 'primary',
+      size: 'md',
+    },
+  }
+);
+
+export interface ButtonProps
+  extends ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
+  loading?: boolean;
+  loadingText?: string;
+  leftIcon?: React.ReactNode;
+  rightIcon?: React.ReactNode;
+  animated?: boolean;
+}
+
+const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ 
+    className, 
+    variant, 
+    size, 
+    fullWidth, 
+    rounded,
+    loading, 
+    loadingText,
+    leftIcon,
+    rightIcon,
+    animated = true,
+    children, 
+    disabled, 
+    ...props 
+  }, ref) => {
+    const Component = animated ? motion.button : 'button';
+    
+    const content = (
+      <>
+        {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        {!loading && leftIcon && <span className="mr-2">{leftIcon}</span>}
+        {loading && loadingText ? loadingText : children}
+        {!loading && rightIcon && <span className="ml-2">{rightIcon}</span>}
+      </>
+    );
+
+    const motionProps = animated ? {
+      whileHover: { scale: 1.02 },
+      whileTap: { scale: 0.98 },
+      transition: { type: 'spring', stiffness: 400, damping: 17 },
+    } : {};
+
+    return (
+      <Component
+        className={cn(buttonVariants({ variant, size, fullWidth, rounded, className }))}
+        ref={ref as any}
+        disabled={disabled || loading}
+        {...motionProps}
+        {...(props as any)}
+      >
+        {content}
+      </Component>
+    );
+  }
+);
+Button.displayName = 'Button';
+
+export { Button, buttonVariants };
+```
+
+### 2.2 Card Component with Variants
+
+```tsx
+// components/ui/Card.tsx
+'use client';
+
+import { forwardRef, HTMLAttributes } from 'react';
+import { cn } from '@/lib/utils';
+import { motion, HTMLMotionProps } from 'framer-motion';
+
+interface CardProps extends HTMLAttributes<HTMLDivElement> {
+  glass?: boolean;
+  hover?: boolean;
+  bordered?: boolean;
+  animated?: boolean;
+  padding?: 'none' | 'sm' | 'md' | 'lg';
+}
+
+const paddingMap = {
+  none: 'p-0',
+  sm: 'p-4',
+  md: 'p-6',
+  lg: 'p-8',
+};
+
+const Card = forwardRef<HTMLDivElement, CardProps>(
+  ({ 
+    className, 
+    glass = true, 
+    hover = false, 
+    bordered = true,
+    animated = true,
+    padding = 'md',
+    children, 
+    ...props 
+  }, ref) => {
+    const Component = animated ? motion.div : 'div';
+    
+    const motionProps = animated ? {
+      initial: { opacity: 0, y: 10 },
+      whileInView: { opacity: 1, y: 0 },
+      viewport: { once: true, margin: '-50px' },
+      transition: { duration: 0.3 },
+      whileHover: hover ? { scale: 1.02, transition: { duration: 0.2 } } : undefined,
+    } : {};
+
+    return (
+      <Component
+        ref={ref as any}
+        className={cn(
+          'rounded-2xl',
+          paddingMap[padding],
+          glass && 'bg-card backdrop-blur-xl',
+          !glass && 'bg-mezo-darker',
+          bordered && 'border border-border',
+          hover && 'transition-all duration-200 hover:shadow-xl hover:border-mezo-primary/30',
+          className
+        )}
+        {...motionProps}
+        {...(props as any)}
+      >
+        {children}
+      </Component>
+    );
+  }
+);
+Card.displayName = 'Card';
+
+// Subcomponents
+const CardHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div ref={ref} className={cn('flex flex-col space-y-1.5 mb-4', className)} {...props} />
+  )
+);
+CardHeader.displayName = 'CardHeader';
+
+const CardTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHeadingElement>>(
+  ({ className, ...props }, ref) => (
+    <h3 ref={ref} className={cn('text-xl font-semibold leading-none tracking-tight', className)} {...props} />
+  )
+);
+CardTitle.displayName = 'CardTitle';
+
+const CardDescription = forwardRef<HTMLParagraphElement, HTMLAttributes<HTMLParagraphElement>>(
+  ({ className, ...props }, ref) => (
+    <p ref={ref} className={cn('text-sm text-mezo-muted', className)} {...props} />
+  )
+);
+CardDescription.displayName = 'CardDescription';
+
+const CardContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div ref={ref} className={cn('', className)} {...props} />
+  )
+);
+CardContent.displayName = 'CardContent';
+
+const CardFooter = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div ref={ref} className={cn('flex items-center pt-4 border-t border-border', className)} {...props} />
+  )
+);
+CardFooter.displayName = 'CardFooter';
+
+export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter };
+```
+
+### 2.3 Input Component with Validation States
+
+```tsx
+// components/ui/Input.tsx
+'use client';
+
+import { forwardRef, InputHTMLAttributes, useState } from 'react';
+import { cn } from '@/lib/utils';
+import { Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react';
+
+export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
+  label?: string;
+  error?: string;
+  success?: string;
+  icon?: React.ReactNode;
+  rightIcon?: React.ReactNode;
+}
+
+const Input = forwardRef<HTMLInputElement, InputProps>(
+  ({ className, type, label, error, success, icon, rightIcon, id, ...props }, ref) => {
+    const [showPassword, setShowPassword] = useState(false);
+    const inputId = id || `input-${Math.random().toString(36).slice(2)}`;
+    const isPassword = type === 'password';
+    const inputType = isPassword && showPassword ? 'text' : type;
+
+    return (
+      <div className="w-full">
+        {label && (
+          <label htmlFor={inputId} className="block text-sm font-medium mb-1.5 text-mezo-muted">
+            {label}
+          </label>
+        )}
+        <div className="relative">
+          {icon && (
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-mezo-muted">
+              {icon}
+            </div>
+          )}
+          <input
+            ref={ref}
+            id={inputId}
+            type={inputType}
+            className={cn(
+              'w-full rounded-xl bg-mezo-darker border border-border px-4 py-3 text-white placeholder-mezo-muted',
+              'focus:outline-none focus:ring-2 focus:ring-mezo-primary focus:border-transparent',
+              'transition-all duration-200',
+              'disabled:opacity-50 disabled:cursor-not-allowed',
+              icon && 'pl-10',
+              (rightIcon || isPassword) && 'pr-10',
+              error && 'border-red-500 focus:ring-red-500',
+              success && 'border-mezo-accent focus:ring-mezo-accent',
+              className
+            )}
+            aria-invalid={!!error}
+            aria-describedby={error ? `${inputId}-error` : success ? `${inputId}-success` : undefined}
+            {...props}
+          />
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            {isPassword && (
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="text-mezo-muted hover:text-white transition"
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            )}
+            {rightIcon && <span className="text-mezo-muted">{rightIcon}</span>}
+            {error && <AlertCircle size={18} className="text-red-500" />}
+            {success && <CheckCircle2 size={18} className="text-mezo-accent" />}
+          </div>
+        </div>
+        {error && (
+          <p id={`${inputId}-error`} className="mt-1.5 text-sm text-red-500 flex items-center gap-1">
+            <AlertCircle size={14} /> {error}
+          </p>
+        )}
+        {success && (
+          <p id={`${inputId}-success`} className="mt-1.5 text-sm text-mezo-accent flex items-center gap-1">
+            <CheckCircle2 size={14} /> {success}
+          </p>
+        )}
+      </div>
+    );
+  }
+);
+Input.displayName = 'Input';
+
+export { Input };
+```
+
+### 2.4 Badge Component
+
+```tsx
+// components/ui/Badge.tsx
+'use client';
+
+import { cn } from '@/lib/utils';
+import { cva, type VariantProps } from 'class-variance-authority';
+
+const badgeVariants = cva(
+  'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors',
+  {
+    variants: {
+      variant: {
+        default: 'bg-mezo-primary/20 text-mezo-primary border border-mezo-primary/30',
+        secondary: 'bg-mezo-secondary/20 text-mezo-secondary border border-mezo-secondary/30',
+        accent: 'bg-mezo-accent/20 text-mezo-accent border border-mezo-accent/30',
+        muted: 'bg-mezo-muted/20 text-mezo-muted border border-mezo-muted/30',
+        success: 'bg-green-500/20 text-green-400 border border-green-500/30',
+        warning: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30',
+        danger: 'bg-red-500/20 text-red-400 border border-red-500/30',
+        outline: 'border border-border text-mezo-muted',
+      },
+      size: {
+        sm: 'px-2 py-0 text-xs',
+        md: 'px-2.5 py-0.5 text-sm',
+        lg: 'px-3 py-1 text-base',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
+      size: 'md',
+    },
+  }
+);
+
+interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement>, VariantProps<typeof badgeVariants> {
+  dot?: boolean;
+  dotColor?: string;
+}
+
+export function Badge({ className, variant, size, dot, dotColor, children, ...props }: BadgeProps) {
+  return (
+    <span className={cn(badgeVariants({ variant, size }), className)} {...props}>
+      {dot && (
+        <span 
+          className={cn('mr-1.5 h-2 w-2 rounded-full', dotColor || 'bg-current')} 
+          aria-hidden="true"
+        />
+      )}
+      {children}
+    </span>
+  );
+}
+```
+
+### 2.5 Skeleton Loading Component
+
+```tsx
+// components/ui/Skeleton.tsx
+'use client';
+
+import { cn } from '@/lib/utils';
+
+interface SkeletonProps extends React.HTMLAttributes<HTMLDivElement> {
+  variant?: 'text' | 'circular' | 'rectangular' | 'rounded';
+  width?: string | number;
+  height?: string | number;
+  animation?: 'pulse' | 'shimmer' | 'none';
+}
+
+export function Skeleton({
+  className,
+  variant = 'text',
+  width,
+  height,
+  animation = 'shimmer',
+  style,
+  ...props
+}: SkeletonProps) {
+  const variantClasses = {
+    text: 'h-4 w-full',
+    circular: 'rounded-full',
+    rectangular: '',
+    rounded: 'rounded-lg',
+  };
+
+  const animationClasses = {
+    pulse: 'animate-pulse',
+    shimmer: 'shimmer',
+    none: '',
+  };
+
+  return (
+    <div
+      className={cn(
+        'bg-white/10',
+        variantClasses[variant],
+        animationClasses[animation],
+        className
+      )}
+      style={{
+        width: typeof width === 'number' ? `${width}px` : width,
+        height: typeof height === 'number' ? `${height}px` : height,
+        ...style,
+      }}
+      {...props}
+    />
+  );
+}
+
+// Pre-built skeleton layouts
+export function StatCardSkeleton() {
+  return (
+    <div className="glass p-4 space-y-3">
+      <Skeleton width={80} height={16} />
+      <Skeleton width={120} height={32} variant="rounded" />
+      <Skeleton width="60%" height={14} />
+    </div>
+  );
+}
+
+export function VaultPositionSkeleton() {
+  return (
+    <div className="glass p-6 space-y-4">
+      <Skeleton width={150} height={24} />
+      <div className="grid grid-cols-3 gap-4">
+        <Skeleton height={60} variant="rounded" />
+        <Skeleton height={60} variant="rounded" />
+        <Skeleton height={60} variant="rounded" />
+      </div>
+      <Skeleton height={100} variant="rounded" />
+    </div>
+  );
+}
+
+export function TableRowSkeleton({ columns = 4 }: { columns?: number }) {
+  return (
+    <div className="flex items-center space-x-4 py-3">
+      {Array.from({ length: columns }).map((_, i) => (
+        <Skeleton key={i} className="flex-1" height={20} />
+      ))}
+    </div>
+  );
+}
+```
+
+---
+
+## 3. Animation System & Micro‑interactions
+
+### 3.1 Framer Motion Presets
+
+```tsx
+// lib/animations/presets.ts
+import { Variants } from 'framer-motion';
+
+export const fadeIn: Variants = {
+  hidden: { opacity: 0 },
+  visible: { 
+    opacity: 1,
+    transition: { duration: 0.3, ease: 'easeOut' }
+  },
+  exit: { 
+    opacity: 0,
+    transition: { duration: 0.2, ease: 'easeIn' }
+  },
+};
+
+export const slideUp: Variants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { 
+    opacity: 1, 
+    y: 0,
+    transition: { duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }
+  },
+  exit: { 
+    opacity: 0, 
+    y: -20,
+    transition: { duration: 0.3, ease: 'easeIn' }
+  },
+};
+
+export const slideInLeft: Variants = {
+  hidden: { opacity: 0, x: -30 },
+  visible: { 
+    opacity: 1, 
+    x: 0,
+    transition: { duration: 0.3, ease: 'easeOut' }
+  },
+};
+
+export const slideInRight: Variants = {
+  hidden: { opacity: 0, x: 30 },
+  visible: { 
+    opacity: 1, 
+    x: 0,
+    transition: { duration: 0.3, ease: 'easeOut' }
+  },
+};
+
+export const scaleIn: Variants = {
+  hidden: { opacity: 0, scale: 0.9 },
+  visible: { 
+    opacity: 1, 
+    scale: 1,
+    transition: { duration: 0.25, ease: 'easeOut' }
+  },
+  exit: { 
+    opacity: 0, 
+    scale: 0.9,
+    transition: { duration: 0.2, ease: 'easeIn' }
+  },
+};
+
+export const staggerContainer: Variants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.08,
+      delayChildren: 0.1,
+    },
+  },
+};
+
+export const staggerItem: Variants = {
+  hidden: { opacity: 0, y: 10 },
+  visible: { 
+    opacity: 1, 
+    y: 0,
+    transition: { duration: 0.3 }
+  },
+};
+
+export const listItemHover = {
+  whileHover: { 
+    scale: 1.02,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    transition: { duration: 0.2 }
+  },
+  whileTap: { scale: 0.98 },
+};
+
+export const cardHover = {
+  whileHover: { 
+    scale: 1.02,
+    boxShadow: '0 10px 30px -10px rgba(0, 0, 0, 0.3)',
+    borderColor: 'rgba(245, 166, 35, 0.3)',
+    transition: { duration: 0.2 }
+  },
+};
+
+export const numberCounter = (value: number, duration: number = 1) => ({
+  animate: { value },
+  transition: { duration, ease: 'easeOut' },
+});
+```
+
+### 3.2 Animated Number Component
+
+```tsx
+// components/ui/AnimatedNumber.tsx
+'use client';
+
+import { motion, useSpring, useTransform, MotionValue } from 'framer-motion';
+import { useEffect } from 'react';
+
+interface AnimatedNumberProps {
+  value: number;
+  prefix?: string;
+  suffix?: string;
+  decimals?: number;
+  duration?: number;
+  className?: string;
+}
+
+export function AnimatedNumber({ 
+  value, 
+  prefix = '', 
+  suffix = '', 
+  decimals = 2,
+  duration = 1,
+  className 
+}: AnimatedNumberProps) {
+  const spring = useSpring(0, {
+    stiffness: 100,
+    damping: 30,
+    duration: duration * 1000,
+  });
+
+  useEffect(() => {
+    spring.set(value);
+  }, [spring, value]);
+
+  const display = useTransform(spring, (current) => {
+    const formatted = current.toFixed(decimals);
+    return `${prefix}${formatted}${suffix}`;
+  });
+
+  return (
+    <motion.span className={className}>
+      {display}
+    </motion.span>
+  );
+}
+```
+
+### 3.3 Page Transition Component
+
+```tsx
+// components/transitions/PageTransition.tsx
+'use client';
+
+import { motion, AnimatePresence } from 'framer-motion';
+import { usePathname } from 'next/navigation';
+import { slideUp } from '@/lib/animations/presets';
+
+interface PageTransitionProps {
+  children: React.ReactNode;
+}
+
+export function PageTransition({ children }: PageTransitionProps) {
+  const pathname = usePathname();
+
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={pathname}
+        variants={slideUp}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+      >
+        {children}
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+```
+
+### 3.4 Lottie Animation Integration
+
+```tsx
+// components/ui/LottieAnimation.tsx
+'use client';
+
+import { useEffect, useRef } from 'react';
+import lottie, { AnimationItem } from 'lottie-web';
+
+interface LottieAnimationProps {
+  animationData: any;
+  loop?: boolean;
+  autoplay?: boolean;
+  className?: string;
+  width?: number;
+  height?: number;
+  onComplete?: () => void;
+}
+
+export function LottieAnimation({
+  animationData,
+  loop = true,
+  autoplay = true,
+  className,
+  width,
+  height,
+  onComplete,
+}: LottieAnimationProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const animationRef = useRef<AnimationItem | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    animationRef.current = lottie.loadAnimation({
+      container: containerRef.current,
+      renderer: 'svg',
+      loop,
+      autoplay,
+      animationData,
+    });
+
+    if (onComplete) {
+      animationRef.current.addEventListener('complete', onComplete);
+    }
+
+    return () => {
+      if (animationRef.current) {
+        animationRef.current.destroy();
+      }
+    };
+  }, [animationData, loop, autoplay, onComplete]);
+
+  return (
+    <div 
+      ref={containerRef} 
+      className={className}
+      style={{ width, height }}
+    />
+  );
+}
+
+// Pre-built success animation
+export function SuccessAnimation({ className }: { className?: string }) {
+  const successAnimationData = {
+    v: '5.7.0',
+    fr: 30,
+    ip: 0,
+    op: 60,
+    w: 200,
+    h: 200,
+    nm: 'Success',
+    ddd: 0,
+    assets: [],
+    layers: [
+      // ... animation data (truncated for brevity)
+    ],
+  };
+
+  return (
+    <LottieAnimation
+      animationData={successAnimationData}
+      loop={false}
+      width={80}
+      height={80}
+      className={className}
+    />
+  );
+}
+```
+
+---
+
+## 4. Layout & Responsive Architecture
+
+### 4.1 Responsive Container
+
+```tsx
+// components/layout/Container.tsx
+'use client';
+
+import { cn } from '@/lib/utils';
+
+interface ContainerProps {
+  children: React.ReactNode;
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
+  className?: string;
+  as?: React.ElementType;
+}
+
+const sizeClasses = {
+  sm: 'max-w-3xl',
+  md: 'max-w-5xl',
+  lg: 'max-w-7xl',
+  xl: 'max-w-[1440px]',
+  full: 'max-w-full',
+};
+
+export function Container({ children, size = 'lg', className, as: Component = 'div' }: ContainerProps) {
+  return (
+    <Component className={cn('mx-auto px-4 sm:px-6 lg:px-8 w-full', sizeClasses[size], className)}>
+      {children}
+    </Component>
+  );
+}
+```
+
+### 4.2 Grid System
+
+```tsx
+// components/layout/Grid.tsx
+'use client';
+
+import { cn } from '@/lib/utils';
+
+interface GridProps {
+  children: React.ReactNode;
+  cols?: 1 | 2 | 3 | 4 | 5 | 6 | 12;
+  gap?: 'sm' | 'md' | 'lg' | 'xl';
+  className?: string;
+}
+
+const gapClasses = {
+  sm: 'gap-2',
+  md: 'gap-4',
+  lg: 'gap-6',
+  xl: 'gap-8',
+};
+
+const colClasses = {
+  1: 'grid-cols-1',
+  2: 'grid-cols-1 sm:grid-cols-2',
+  3: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+  4: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4',
+  5: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5',
+  6: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6',
+  12: 'grid-cols-12',
+};
+
+export function Grid({ children, cols = 3, gap = 'md', className }: GridProps) {
+  return (
+    <div className={cn('grid', colClasses[cols], gapClasses[gap], className)}>
+      {children}
+    </div>
+  );
+}
+
+interface GridItemProps {
+  children: React.ReactNode;
+  span?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+  className?: string;
+}
+
+const spanClasses = {
+  1: 'col-span-1',
+  2: 'col-span-2',
+  3: 'col-span-3',
+  4: 'col-span-4',
+  5: 'col-span-5',
+  6: 'col-span-6',
+  7: 'col-span-7',
+  8: 'col-span-8',
+  9: 'col-span-9',
+  10: 'col-span-10',
+  11: 'col-span-11',
+  12: 'col-span-12',
+};
+
+export function GridItem({ children, span, className }: GridItemProps) {
+  return (
+    <div className={cn(span && spanClasses[span], className)}>
+      {children}
+    </div>
+  );
+}
+```
+
+### 4.3 Responsive Utilities Hook
+
+```tsx
+// hooks/useResponsive.ts
+'use client';
+
+import { useState, useEffect } from 'react';
+
+interface Breakpoints {
+  sm: boolean;
+  md: boolean;
+  lg: boolean;
+  xl: boolean;
+  '2xl': boolean;
+}
+
+const breakpointValues = {
+  sm: 640,
+  md: 768,
+  lg: 1024,
+  xl: 1280,
+  '2xl': 1536,
+};
+
+export function useResponsive(): Breakpoints & { isMobile: boolean; isTablet: boolean; isDesktop: boolean } {
+  const [breakpoints, setBreakpoints] = useState<Breakpoints>({
+    sm: false,
+    md: false,
+    lg: false,
+    xl: false,
+    '2xl': false,
+  });
+
+  useEffect(() => {
+    const handleResize = () => {
+      const width = window.innerWidth;
+      setBreakpoints({
+        sm: width >= breakpointValues.sm,
+        md: width >= breakpointValues.md,
+        lg: width >= breakpointValues.lg,
+        xl: width >= breakpointValues.xl,
+        '2xl': width >= breakpointValues['2xl'],
+      });
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const isMobile = !breakpoints.md;
+  const isTablet = breakpoints.md && !breakpoints.lg;
+  const isDesktop = breakpoints.lg;
+
+  return { ...breakpoints, isMobile, isTablet, isDesktop };
+}
+```
+
+---
+
+## 5. Loading States & Skeleton Screens
+
+### 5.1 Full Page Loader
+
+```tsx
+// components/loading/PageLoader.tsx
+'use client';
+
+import { motion } from 'framer-motion';
+import { Loader2 } from 'lucide-react';
+
+interface PageLoaderProps {
+  message?: string;
+  fullScreen?: boolean;
+}
+
+export function PageLoader({ message = 'Loading...', fullScreen = true }: PageLoaderProps) {
+  const containerClasses = fullScreen
+    ? 'fixed inset-0 z-50 flex items-center justify-center bg-mezo-darker/95 backdrop-blur-sm'
+    : 'flex items-center justify-center p-8';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className={containerClasses}
+    >
+      <div className="text-center">
+        <div className="relative">
+          <Loader2 className="h-12 w-12 animate-spin text-mezo-primary" />
+          <div className="absolute inset-0 h-12 w-12 animate-ping rounded-full bg-mezo-primary/20" />
+        </div>
+        <p className="mt-4 text-mezo-muted animate-pulse">{message}</p>
+      </div>
+    </motion.div>
+  );
+}
+```
+
+### 5.2 Progress Bar Component
+
+```tsx
+// components/ui/Progress.tsx
+'use client';
+
+import { motion } from 'framer-motion';
+import { cn } from '@/lib/utils';
+
+interface ProgressProps {
+  value: number;
+  max?: number;
+  size?: 'sm' | 'md' | 'lg';
+  variant?: 'primary' | 'accent' | 'success' | 'warning';
+  showLabel?: boolean;
+  animated?: boolean;
+  className?: string;
+}
+
+const sizeClasses = {
+  sm: 'h-1',
+  md: 'h-2',
+  lg: 'h-3',
+};
+
+const variantClasses = {
+  primary: 'bg-mezo-primary',
+  accent: 'bg-mezo-accent',
+  success: 'bg-green-500',
+  warning: 'bg-yellow-500',
+};
+
+export function Progress({ 
+  value, 
+  max = 100, 
+  size = 'md', 
+  variant = 'primary',
+  showLabel = false,
+  animated = true,
+  className 
+}: ProgressProps) {
+  const percentage = Math.min(100, Math.max(0, (value / max) * 100));
+
+  return (
+    <div className={cn('w-full', className)}>
+      {showLabel && (
+        <div className="mb-1 flex justify-between text-sm">
+          <span className="text-mezo-muted">Progress</span>
+          <span className="font-medium">{percentage.toFixed(0)}%</span>
+        </div>
+      )}
+      <div className={cn('w-full overflow-hidden rounded-full bg-white/10', sizeClasses[size])}>
+        <motion.div
+          initial={animated ? { width: 0 } : false}
+          animate={{ width: `${percentage}%` }}
+          transition={{ duration: 0.5, ease: 'easeOut' }}
+          className={cn('h-full rounded-full', variantClasses[variant])}
+        />
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## 6. Form Components & Validation
+
+### 6.1 Form with React Hook Form Integration
+
+```tsx
+// components/forms/Form.tsx
+'use client';
+
+import { 
+  useForm, 
+  FormProvider, 
+  UseFormProps, 
+  FieldValues, 
+  SubmitHandler 
+} from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { cn } from '@/lib/utils';
+
+interface FormProps<T extends FieldValues> extends UseFormProps<T> {
+  onSubmit: SubmitHandler<T>;
+  schema?: z.ZodSchema<T>;
+  children: React.ReactNode;
+  className?: string;
+}
+
+export function Form<T extends FieldValues>({
+  onSubmit,
+  schema,
+  children,
+  className,
+  ...formProps
+}: FormProps<T>) {
+  const methods = useForm<T>({
+    ...formProps,
+    resolver: schema ? zodResolver(schema) : undefined,
+  });
+
+  return (
+    <FormProvider {...methods}>
+      <form onSubmit={methods.handleSubmit(onSubmit)} className={cn('space-y-4', className)}>
+        {children}
+      </form>
+    </FormProvider>
+  );
+}
+```
+
+### 6.2 Form Field Component
+
+```tsx
+// components/forms/FormField.tsx
+'use client';
+
+import { useFormContext, Controller, ControllerProps } from 'react-hook-form';
+import { Input, InputProps } from '@/components/ui/Input';
+
+interface FormFieldProps extends Omit<ControllerProps, 'render'> {
+  label?: string;
+  inputProps?: InputProps;
+}
+
+export function FormField({ name, label, inputProps, ...controllerProps }: FormFieldProps) {
+  const { control, formState: { errors } } = useFormContext();
+  const error = errors[name]?.message as string | undefined;
+
+  return (
+    <Controller
+      name={name}
+      control={control}
+      {...controllerProps}
+      render={({ field }) => (
+        <Input
+          {...field}
+          {...inputProps}
+          label={label}
+          error={error}
+          onChange={(e) => field.onChange(e.target.value)}
+        />
+      )}
+    />
+  );
+}
+```
+
+---
+
+## 7. Data Visualization Components
+
+### 7.1 Chart Wrapper with Theme
+
+```tsx
+// components/charts/ChartWrapper.tsx
+'use client';
+
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
+import { ResponsiveContainer } from 'recharts';
+import { cn } from '@/lib/utils';
+
+interface ChartWrapperProps {
+  title: string;
+  children: React.ReactNode;
+  height?: number;
+  className?: string;
+  loading?: boolean;
+}
+
+export function ChartWrapper({ title, children, height = 300, className, loading }: ChartWrapperProps) {
+  return (
+    <Card className={cn('', className)}>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="flex items-center justify-center" style={{ height }}>
+            <div className="animate-pulse text-mezo-muted">Loading chart...</div>
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={height}>
+            {children}
+          </ResponsiveContainer>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### 7.2 Custom Tooltip Component
+
+```tsx
+// components/charts/CustomTooltip.tsx
+'use client';
+
+import { TooltipProps } from 'recharts';
+import { cn } from '@/lib/utils';
+
+export function CustomTooltip({ active, payload, label }: TooltipProps<number, string>) {
+  if (!active || !payload || !payload.length) return null;
+
+  return (
+    <div className="rounded-lg border border-border bg-mezo-darker px-3 py-2 shadow-xl">
+      <p className="text-sm font-medium text-white mb-1">{label}</p>
+      {payload.map((entry, index) => (
+        <div key={index} className="flex items-center gap-2 text-sm">
+          <span 
+            className="h-2 w-2 rounded-full" 
+            style={{ backgroundColor: entry.color }}
+          />
+          <span className="text-mezo-muted">{entry.name}:</span>
+          <span className="font-medium text-white">
+            {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+---
+
+## 8. Notification & Toast System
+
+### 8.1 Enhanced Toast System
+
+```tsx
+// lib/toast.ts
+import { toast } from 'sonner';
+import { CheckCircle2, XCircle, AlertCircle, Info, Loader2 } from 'lucide-react';
+
+export const showToast = {
+  success: (message: string, description?: string) => {
+    toast.success(message, {
+      description,
+      icon: <CheckCircle2 className="text-mezo-accent" />,
+      duration: 5000,
+    });
+  },
+  
+  error: (message: string, description?: string) => {
+    toast.error(message, {
+      description,
+      icon: <XCircle className="text-red-500" />,
+      duration: 7000,
+    });
+  },
+  
+  warning: (message: string, description?: string) => {
+    toast.warning(message, {
+      description,
+      icon: <AlertCircle className="text-yellow-500" />,
+      duration: 6000,
+    });
+  },
+  
+  info: (message: string, description?: string) => {
+    toast.info(message, {
+      description,
+      icon: <Info className="text-mezo-secondary" />,
+    });
+  },
+  
+  loading: (message: string, id?: string) => {
+    return toast.loading(message, {
+      id,
+      icon: <Loader2 className="animate-spin text-mezo-primary" />,
+    });
+  },
+  
+  promise: async <T,>(
+    promise: Promise<T>,
+    {
+      loading = 'Processing...',
+      success = 'Completed successfully',
+      error = 'Something went wrong',
+    }: {
+      loading?: string;
+      success?: string | ((data: T) => string);
+      error?: string | ((err: unknown) => string);
+    } = {}
+  ) => {
+    return toast.promise(promise, {
+      loading,
+      success: (data) => {
+        if (typeof success === 'function') return success(data);
+        return success;
+      },
+      error: (err) => {
+        if (typeof error === 'function') return error(err);
+        return error;
+      },
+    });
+  },
+  
+  dismiss: (id?: string) => {
+    toast.dismiss(id);
+  },
+};
+```
+
+---
+
+## 9. Modal & Dialog System
+
+### 9.1 Reusable Modal Component
+
+```tsx
+// components/modals/Modal.tsx
+'use client';
+
+import { Fragment, ReactNode } from 'react';
+import { Dialog, Transition } from '@headlessui/react';
+import { X } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/Button';
+
+interface ModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  title?: string;
+  description?: string;
+  children: ReactNode;
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
+  showCloseButton?: boolean;
+  closeOnOverlayClick?: boolean;
+  actions?: ReactNode;
+  className?: string;
+}
+
+const sizeClasses = {
+  sm: 'max-w-md',
+  md: 'max-w-lg',
+  lg: 'max-w-2xl',
+  xl: 'max-w-4xl',
+  full: 'max-w-[90vw]',
+};
+
+export function Modal({
+  isOpen,
+  onClose,
+  title,
+  description,
+  children,
+  size = 'md',
+  showCloseButton = true,
+  closeOnOverlayClick = true,
+  actions,
+  className,
+}: ModalProps) {
+  return (
+    <Transition appear show={isOpen} as={Fragment}>
+      <Dialog 
+        as="div" 
+        className="relative z-modal" 
+        onClose={closeOnOverlayClick ? onClose : () => {}}
+      >
+        <Transition.Child
+          as={Fragment}
+          enter="ease-out duration-300"
+          enterFrom="opacity-0"
+          enterTo="opacity-100"
+          leave="ease-in duration-200"
+          leaveFrom="opacity-100"
+          leaveTo="opacity-0"
+        >
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm" />
+        </Transition.Child>
+
+        <div className="fixed inset-0 overflow-y-auto">
+          <div className="flex min-h-full items-center justify-center p-4">
+            <Transition.Child
+              as={Fragment}
+              enter="ease-out duration-300"
+              enterFrom="opacity-0 scale-95"
+              enterTo="opacity-100 scale-100"
+              leave="ease-in duration-200"
+              leaveFrom="opacity-100 scale-100"
+              leaveTo="opacity-0 scale-95"
+            >
+              <Dialog.Panel className={cn(
+                'w-full transform overflow-hidden rounded-2xl bg-mezo-darker border border-border shadow-xl transition-all',
+                sizeClasses[size],
+                className
+              )}>
+                {(title || showCloseButton) && (
+                  <div className="flex items-center justify-between p-6 border-b border-border">
+                    <div>
+                      {title && (
+                        <Dialog.Title className="text-lg font-semibold">
+                          {title}
+                        </Dialog.Title>
+                      )}
+                      {description && (
+                        <Dialog.Description className="text-sm text-mezo-muted mt-1">
+                          {description}
+                        </Dialog.Description>
+                      )}
+                    </div>
+                    {showCloseButton && (
+                      <button
+                        onClick={onClose}
+                        className="p-1 hover:bg-white/5 rounded-lg transition"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <div className="p-6">
+                  {children}
+                </div>
+
+                {actions && (
+                  <div className="flex items-center justify-end gap-3 p-6 border-t border-border">
+                    {actions}
+                  </div>
+                )}
+              </Dialog.Panel>
+            </Transition.Child>
+          </div>
+        </div>
+      </Dialog>
+    </Transition>
+  );
+}
+
+// Pre-built confirmation modal
+interface ConfirmModalProps extends Omit<ModalProps, 'children' | 'actions'> {
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  onConfirm: () => void;
+  variant?: 'danger' | 'primary' | 'warning';
+}
+
+export function ConfirmModal({
+  message,
+  confirmText = 'Confirm',
+  cancelText = 'Cancel',
+  onConfirm,
+  variant = 'primary',
+  ...modalProps
+}: ConfirmModalProps) {
+  const variantButton = {
+    danger: <Button variant="danger" onClick={onConfirm}>{confirmText}</Button>,
+    primary: <Button onClick={onConfirm}>{confirmText}</Button>,
+    warning: <Button variant="outline" onClick={onConfirm}>{confirmText}</Button>,
+  };
+
+  return (
+    <Modal
+      {...modalProps}
+      actions={
+        <>
+          <Button variant="ghost" onClick={modalProps.onClose}>
+            {cancelText}
+          </Button>
+          {variantButton[variant]}
+        </>
+      }
+    >
+      <p className="text-mezo-muted">{message}</p>
+    </Modal>
+  );
+}
+```
+
+---
+
+## 10. Tooltips, Popovers & Dropdowns
+
+### 10.1 Tooltip Component
+
+```tsx
+// components/ui/Tooltip.tsx
+'use client';
+
+import * as React from 'react';
+import * as TooltipPrimitive from '@radix-ui/react-tooltip';
+import { cn } from '@/lib/utils';
+
+const TooltipProvider = TooltipPrimitive.Provider;
+const TooltipRoot = TooltipPrimitive.Root;
+const TooltipTrigger = TooltipPrimitive.Trigger;
+
+const TooltipContent = React.forwardRef<
+  React.ElementRef<typeof TooltipPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
+>(({ className, sideOffset = 4, ...props }, ref) => (
+  <TooltipPrimitive.Content
+    ref={ref}
+    sideOffset={sideOffset}
+    className={cn(
+      'z-tooltip overflow-hidden rounded-lg bg-mezo-darker border border-border px-3 py-1.5 text-sm text-white shadow-xl animate-in fade-in-0 zoom-in-95',
+      'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
+      className
+    )}
+    {...props}
+  />
+));
+TooltipContent.displayName = TooltipPrimitive.Content.displayName;
+
+interface TooltipProps {
+  children: React.ReactNode;
+  content: React.ReactNode;
+  side?: 'top' | 'right' | 'bottom' | 'left';
+  align?: 'start' | 'center' | 'end';
+  delayDuration?: number;
+}
+
+export function Tooltip({ children, content, side = 'top', align = 'center', delayDuration = 300 }: TooltipProps) {
+  return (
+    <TooltipProvider>
+      <TooltipRoot delayDuration={delayDuration}>
+        <TooltipTrigger asChild>
+          {children}
+        </TooltipTrigger>
+        <TooltipContent side={side} align={align}>
+          {content}
+        </TooltipContent>
+      </TooltipRoot>
+    </TooltipProvider>
+  );
+}
+
+export { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent };
+```
+
+### 10.2 Dropdown Menu
+
+```tsx
+// components/ui/Dropdown.tsx
+'use client';
+
+import { Fragment, ReactNode } from 'react';
+import { Menu, Transition } from '@headlessui/react';
+import { cn } from '@/lib/utils';
+import { ChevronDown } from 'lucide-react';
+
+interface DropdownItem {
+  label: string;
+  onClick: () => void;
+  icon?: ReactNode;
+  danger?: boolean;
+  disabled?: boolean;
+}
+
+interface DropdownProps {
+  trigger: ReactNode;
+  items: DropdownItem[];
+  align?: 'left' | 'right';
+  className?: string;
+}
+
+export function Dropdown({ trigger, items, align = 'right', className }: DropdownProps) {
+  return (
+    <Menu as="div" className={cn('relative inline-block text-left', className)}>
+      <Menu.Button as="div">
+        {trigger}
+      </Menu.Button>
+
+      <Transition
+        as={Fragment}
+        enter="transition ease-out duration-100"
+        enterFrom="transform opacity-0 scale-95"
+        enterTo="transform opacity-100 scale-100"
+        leave="transition ease-in duration-75"
+        leaveFrom="transform opacity-100 scale-100"
+        leaveTo="transform opacity-0 scale-95"
+      >
+        <Menu.Items className={cn(
+          'absolute z-dropdown mt-2 w-56 origin-top-right rounded-xl bg-mezo-darker border border-border shadow-xl',
+          align === 'left' ? 'left-0' : 'right-0'
+        )}>
+          <div className="p-1">
+            {items.map((item, index) => (
+              <Menu.Item key={index} disabled={item.disabled}>
+                {({ active, disabled }) => (
+                  <button
+                    onClick={item.onClick}
+                    disabled={disabled}
+                    className={cn(
+                      'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition',
+                      active && 'bg-white/5',
+                      item.danger && 'text-red-400',
+                      disabled && 'opacity-50 cursor-not-allowed'
+                    )}
+                  >
+                    {item.icon && <span className="text-mezo-muted">{item.icon}</span>}
+                    {item.label}
+                  </button>
+                )}
+              </Menu.Item>
+            ))}
+          </div>
+        </Menu.Items>
+      </Transition>
+    </Menu>
+  );
+}
+```
+
+---
+
+## 11. Accessibility Implementation
+
+### 11.1 Skip to Content Link
+
+```tsx
+// components/accessibility/SkipLink.tsx
+'use client';
+
+export function SkipLink() {
+  return (
+    <a
+      href="#main-content"
+      className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 z-skipLink bg-mezo-primary text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2"
+    >
+      Skip to main content
+    </a>
+  );
+}
+```
+
+### 11.2 Focus Trap for Modals
+
+```tsx
+// hooks/useFocusTrap.ts
+'use client';
+
+import { useEffect, useRef } from 'react';
+
+export function useFocusTrap(isActive: boolean) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!isActive) {
+      previousFocusRef.current?.focus();
+      return;
+    }
+
+    previousFocusRef.current = document.activeElement as HTMLElement;
+    const container = containerRef.current;
+    if (!container) return;
+
+    const focusableElements = container.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+
+    firstElement?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+
+      if (e.shiftKey) {
+        if (document.activeElement === firstElement) {
+          e.preventDefault();
+          lastElement?.focus();
+        }
+      } else {
+        if (document.activeElement === lastElement) {
+          e.preventDefault();
+          firstElement?.focus();
+        }
+      }
+    };
+
+    container.addEventListener('keydown', handleKeyDown);
+    return () => container.removeEventListener('keydown', handleKeyDown);
+  }, [isActive]);
+
+  return containerRef;
+}
+```
+
+### 11.3 ARIA Live Region for Announcements
+
+```tsx
+// components/accessibility/LiveRegion.tsx
+'use client';
+
+import { useEffect, useState } from 'react';
+
+interface LiveRegionProps {
+  message: string;
+  politeness?: 'polite' | 'assertive';
+  clearAfter?: number;
+}
+
+export function LiveRegion({ message, politeness = 'polite', clearAfter = 5000 }: LiveRegionProps) {
+  const [currentMessage, setCurrentMessage] = useState(message);
+
+  useEffect(() => {
+    setCurrentMessage(message);
+    if (clearAfter > 0) {
+      const timer = setTimeout(() => setCurrentMessage(''), clearAfter);
+      return () => clearTimeout(timer);
+    }
+  }, [message, clearAfter]);
+
+  return (
+    <div
+      role="status"
+      aria-live={politeness}
+      aria-atomic="true"
+      className="sr-only"
+    >
+      {currentMessage}
+    </div>
+  );
+}
+```
+
+---
+
+## 12. Theme Switching & Dark Mode
+
+### 12.1 Theme Provider
+
+```tsx
+// components/theme/ThemeProvider.tsx
+'use client';
+
+import { createContext, useContext, useEffect, useState } from 'react';
+
+type Theme = 'dark' | 'light' | 'system';
+
+interface ThemeContextType {
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+  resolvedTheme: 'dark' | 'light';
+}
+
+const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
+
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setThemeState] = useState<Theme>('system');
+  const [resolvedTheme, setResolvedTheme] = useState<'dark' | 'light'>('dark');
+
+  useEffect(() => {
+    const stored = localStorage.getItem('theme') as Theme | null;
+    if (stored) setThemeState(stored);
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+    const updateResolvedTheme = () => {
+      let resolved: 'dark' | 'light';
+      if (theme === 'system') {
+        resolved = mediaQuery.matches ? 'dark' : 'light';
+      } else {
+        resolved = theme;
+      }
+      
+      root.classList.remove('light', 'dark');
+      root.classList.add(resolved);
+      setResolvedTheme(resolved);
+    };
+
+    updateResolvedTheme();
+    mediaQuery.addEventListener('change', updateResolvedTheme);
+    return () => mediaQuery.removeEventListener('change', updateResolvedTheme);
+  }, [theme]);
+
+  const setTheme = (newTheme: Theme) => {
+    setThemeState(newTheme);
+    localStorage.setItem('theme', newTheme);
+  };
+
+  return (
+    <ThemeContext.Provider value={{ theme, setTheme, resolvedTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+}
+
+export const useTheme = () => {
+  const context = useContext(ThemeContext);
+  if (!context) throw new Error('useTheme must be used within ThemeProvider');
+  return context;
+};
+```
+
+### 12.2 Theme Toggle Button
+
+```tsx
+// components/theme/ThemeToggle.tsx
+'use client';
+
+import { useTheme } from './ThemeProvider';
+import { Button } from '@/components/ui/Button';
+import { Sun, Moon, Monitor } from 'lucide-react';
+import { Dropdown } from '@/components/ui/Dropdown';
+
+export function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+
+  const items = [
+    { label: 'Light', onClick: () => setTheme('light'), icon: <Sun size={16} /> },
+    { label: 'Dark', onClick: () => setTheme('dark'), icon: <Moon size={16} /> },
+    { label: 'System', onClick: () => setTheme('system'), icon: <Monitor size={16} /> },
+  ];
+
+  const currentIcon = theme === 'light' ? <Sun size={20} /> : theme === 'dark' ? <Moon size={20} /> : <Monitor size={20} />;
+
+  return (
+    <Dropdown
+      trigger={
+        <Button variant="ghost" size="icon" aria-label="Toggle theme">
+          {currentIcon}
+        </Button>
+      }
+      items={items}
+    />
+  );
+}
+```
+
+---
+
+## 13. Onboarding & Guided Tours
+
+### 13.1 Onboarding Tour Component
+
+```tsx
+// components/onboarding/Tour.tsx
+'use client';
+
+import { useState, useEffect } from 'react';
+import Joyride, { Step, CallBackProps, STATUS } from 'react-joyride';
+import { useTheme } from '@/components/theme/ThemeProvider';
+
+const tourSteps: Step[] = [
+  {
+    target: '[data-tour="connect-wallet"]',
+    content: 'Connect your wallet to start using the Auto‑Compounder Vault.',
+    placement: 'bottom',
+    disableBeacon: true,
+  },
+  {
+    target: '[data-tour="vault-overview"]',
+    content: 'This shows your current vault position and share of the pool.',
+    placement: 'bottom',
+  },
+  {
+    target: '[data-tour="deposit-button"]',
+    content: 'Deposit your veMEZO NFTs here to start earning auto‑compounded yield.',
+    placement: 'top',
+  },
+  {
+    target: '[data-tour="stats"]',
+    content: 'Track your yield and pool performance here.',
+    placement: 'left',
+  },
+];
+
+export function OnboardingTour() {
+  const [run, setRun] = useState(false);
+  const { resolvedTheme } = useTheme();
+
+  useEffect(() => {
+    const hasSeenTour = localStorage.getItem('hasSeenTour');
+    if (!hasSeenTour) {
+      setRun(true);
+    }
+  }, []);
+
+  const handleCallback = (data: CallBackProps) => {
+    const { status } = data;
+    if ([STATUS.FINISHED, STATUS.SKIPPED].includes(status)) {
+      localStorage.setItem('hasSeenTour', 'true');
+      setRun(false);
+    }
+  };
+
+  return (
+    <Joyride
+      steps={tourSteps}
+      run={run}
+      continuous
+      showProgress
+      showSkipButton
+      hideCloseButton
+      scrollToFirstStep
+      spotlightClicks
+      disableOverlayClose
+      callback={handleCallback}
+      styles={{
+        options: {
+          primaryColor: '#F5A623',
+          backgroundColor: resolvedTheme === 'dark' ? '#0A0B0D' : '#FFFFFF',
+          textColor: resolvedTheme === 'dark' ? '#FFFFFF' : '#111827',
+          arrowColor: resolvedTheme === 'dark' ? '#0A0B0D' : '#FFFFFF',
+          zIndex: 10000,
+        },
+        tooltip: {
+          borderRadius: '12px',
+          padding: '16px',
+        },
+        buttonNext: {
+          backgroundColor: '#F5A623',
+          borderRadius: '8px',
+          padding: '8px 16px',
+          fontSize: '14px',
+          fontWeight: 600,
+        },
+        buttonBack: {
+          color: '#6B7280',
+          marginRight: '8px',
+        },
+        buttonSkip: {
+          color: '#6B7280',
+        },
+      }}
+      locale={{
+        back: 'Back',
+        close: 'Close',
+        last: 'Finish',
+        next: 'Next',
+        skip: 'Skip',
+      }}
+    />
+  );
+}
+```
+
+---
+
+## 14. Performance Optimizations
+
+### 14.1 Lazy Loading Components
+
+```tsx
+// lib/lazy-load.ts
+import dynamic from 'next/dynamic';
+import { ComponentType } from 'react';
+
+export const lazyLoad = <T extends ComponentType<any>>(
+  importFn: () => Promise<{ default: T }>,
+  options?: {
+    ssr?: boolean;
+    loading?: React.ReactNode;
+  }
+) => {
+  return dynamic(importFn, {
+    ssr: options?.ssr ?? false,
+    loading: () => options?.loading ?? <div className="p-4 text-center text-mezo-muted">Loading...</div>,
+  });
+};
+
+// Usage examples
+export const LazyChart = lazyLoad(() => import('@/components/charts/TVLChart'), {
+  loading: <div className="h-80 bg-white/5 animate-pulse rounded-xl" />,
+});
+
+export const LazyGovernance = lazyLoad(() => import('@/app/governance/page'));
+```
+
+### 14.2 Image Optimization Component
+
+```tsx
+// components/ui/OptimizedImage.tsx
+'use client';
+
+import Image, { ImageProps } from 'next/image';
+import { useState } from 'react';
+import { cn } from '@/lib/utils';
+
+interface OptimizedImageProps extends Omit<ImageProps, 'onLoad'> {
+  fallback?: string;
+  containerClassName?: string;
+}
+
+export function OptimizedImage({ 
+  src, 
+  alt, 
+  fallback = '/images/placeholder.png',
+  containerClassName,
+  className,
+  ...props 
+}: OptimizedImageProps) {
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  return (
+    <div className={cn('relative overflow-hidden', containerClassName)}>
+      {isLoading && (
+        <div className="absolute inset-0 bg-white/5 animate-pulse" />
+      )}
+      <Image
+        src={error ? fallback : src}
+        alt={alt}
+        className={cn(
+          'duration-700 ease-in-out',
+          isLoading ? 'scale-110 blur-2xl grayscale' : 'scale-100 blur-0 grayscale-0',
+          className
+        )}
+        onLoad={() => setIsLoading(false)}
+        onError={() => {
+          setError(true);
+          setIsLoading(false);
+        }}
+        {...props}
+      />
+    </div>
+  );
+}
+```
+
+### 14.3 Virtualized List for Large Datasets
+
+```tsx
+// components/ui/VirtualList.tsx
+'use client';
+
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { useRef } from 'react';
+
+interface VirtualListProps<T> {
+  items: T[];
+  renderItem: (item: T, index: number) => React.ReactNode;
+  estimateSize?: number;
+  overscan?: number;
+  className?: string;
+}
+
+export function VirtualList<T>({ 
+  items, 
+  renderItem, 
+  estimateSize = 50, 
+  overscan = 5,
+  className 
+}: VirtualListProps<T>) {
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => estimateSize,
+    overscan,
+  });
+
+  return (
+    <div
+      ref={parentRef}
+      className={cn('h-full overflow-auto', className)}
+    >
+      <div
+        style={{
+          height: `${virtualizer.getTotalSize()}px`,
+          width: '100%',
+          position: 'relative',
+        }}
+      >
+        {virtualizer.getVirtualItems().map((virtualItem) => (
+          <div
+            key={virtualItem.key}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: `${virtualItem.size}px`,
+              transform: `translateY(${virtualItem.start}px)`,
+            }}
+          >
+            {renderItem(items[virtualItem.index], virtualItem.index)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## 15. Mobile‑First Responsive Utilities
+
+### 15.1 Responsive Value Hook
+
+```tsx
+// hooks/useResponsiveValue.ts
+'use client';
+
+import { useResponsive } from './useResponsive';
+
+export function useResponsiveValue<T>(values: {
+  base: T;
+  sm?: T;
+  md?: T;
+  lg?: T;
+  xl?: T;
+  '2xl'?: T;
+}): T {
+  const { sm, md, lg, xl, '2xl': xxl } = useResponsive();
+
+  if (xxl && values['2xl'] !== undefined) return values['2xl'];
+  if (xl && values.xl !== undefined) return values.xl;
+  if (lg && values.lg !== undefined) return values.lg;
+  if (md && values.md !== undefined) return values.md;
+  if (sm && values.sm !== undefined) return values.sm;
+  return values.base;
+}
+```
+
+### 15.2 Responsive Component
+
+```tsx
+// components/ui/Responsive.tsx
+'use client';
+
+import { useResponsive } from '@/hooks/useResponsive';
+import { ReactNode } from 'react';
+
+interface ResponsiveProps {
+  children: ReactNode;
+  showOn?: 'mobile' | 'tablet' | 'desktop';
+  hideOn?: 'mobile' | 'tablet' | 'desktop';
+}
+
+export function Responsive({ children, showOn, hideOn }: ResponsiveProps) {
+  const { isMobile, isTablet, isDesktop } = useResponsive();
+
+  const shouldShow = () => {
+    if (showOn === 'mobile' && !isMobile) return false;
+    if (showOn === 'tablet' && !isTablet) return false;
+    if (showOn === 'desktop' && !isDesktop) return false;
+    if (hideOn === 'mobile' && isMobile) return false;
+    if (hideOn === 'tablet' && isTablet) return false;
+    if (hideOn === 'desktop' && isDesktop) return false;
+    return true;
+  };
+
+  if (!shouldShow()) return null;
+  return <>{children}</>;
+}
+```
+
+---
+
+## 16. Advanced Interactive Demos
+
+### 16.1 Interactive Compounding Visualizer
+
+```tsx
+// components/demos/CompoundingVisualizer.tsx
+'use client';
+
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
+import { Slider } from '@/components/ui/Slider';
+import { Button } from '@/components/ui/Button';
+import { Play, Pause, RefreshCw } from 'lucide-react';
+import { AnimatedNumber } from '@/components/ui/AnimatedNumber';
+
+export function CompoundingVisualizer() {
+  const [principal, setPrincipal] = useState(1000);
+  const [apy, setApy] = useState(80);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentBalance, setCurrentBalance] = useState(principal);
+  const [week, setWeek] = useState(0);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    const interval = setInterval(() => {
+      setWeek((w) => {
+        if (w >= 52) {
+          setIsPlaying(false);
+          return w;
+        }
+        return w + 1;
+      });
+      setCurrentBalance((b) => b * (1 + apy / 100 / 52));
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [isPlaying, apy]);
+
+  const handleReset = () => {
+    setIsPlaying(false);
+    setWeek(0);
+    setCurrentBalance(principal);
+  };
+
+  const totalEarned = currentBalance - principal;
+  const weeklyYield = (currentBalance * apy / 100 / 52);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Live Compounding Simulator</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <p className="stat-label">Principal</p>
+            <p className="text-2xl font-bold">{principal.toLocaleString()} MEZO</p>
+          </div>
+          <div>
+            <p className="stat-label">Current Balance</p>
+            <AnimatedNumber 
+              value={currentBalance} 
+              suffix=" MEZO" 
+              className="text-2xl font-bold text-gradient"
+            />
+          </div>
+          <div>
+            <p className="stat-label">Total Earned</p>
+            <p className="text-2xl font-bold text-mezo-accent">
+              +{totalEarned.toFixed(2)} MEZO
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium mb-2 block">
+              Initial Deposit: {principal} MEZO
+            </label>
+            <Slider
+              value={[principal]}
+              onValueChange={([v]) => {
+                setPrincipal(v);
+                if (!isPlaying) setCurrentBalance(v);
+              }}
+              min={100}
+              max={100000}
+              step={100}
+              disabled={isPlaying}
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-2 block">
+              APY: {apy}%
+            </label>
+            <Slider
+              value={[apy]}
+              onValueChange={([v]) => setApy(v)}
+              min={10}
+              max={200}
+              step={1}
+            />
+          </div>
+        </div>
+
+        <div className="h-20 flex items-center justify-center">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={week}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="text-center"
+            >
+              <p className="text-sm text-mezo-muted">Week {week} of 52</p>
+              <p className="text-lg font-medium">
+                Weekly Yield: <span className="text-mezo-accent">{weeklyYield.toFixed(2)} MEZO</span>
+              </p>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        <div className="flex justify-center gap-3">
+          <Button
+            onClick={() => setIsPlaying(!isPlaying)}
+            leftIcon={isPlaying ? <Pause size={16} /> : <Play size={16} />}
+          >
+            {isPlaying ? 'Pause' : 'Start'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleReset}
+            leftIcon={<RefreshCw size={16} />}
+            disabled={isPlaying}
+          >
+            Reset
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+## Summary
+
+This comprehensive UI/UX implementation provides:
+
+1. **Complete Design System**: Tokens, Tailwind config, CSS variables, and global styles
+2. **Advanced Component Library**: Button, Card, Input, Badge, Skeleton, and more with variants and animations
+3. **Animation System**: Framer Motion presets, page transitions, number counter
+4. **Responsive Architecture**: Container, Grid, responsive hooks and utilities
+5. **Loading States**: Page loader, progress bar, skeleton screens
+6. **Form System**: React Hook Form integration with validation
+7. **Data Visualization**: Chart wrappers with custom tooltips
+8. **Toast Notifications**: Enhanced toast system with promise support
+9. **Modal System**: Reusable modal and confirmation dialogs
+10. **Tooltips & Dropdowns**: Accessible tooltips and dropdown menus
+11. **Accessibility**: Skip links, focus trap, ARIA live regions
+12. **Theme Switching**: Dark/light/system theme provider
+13. **Onboarding**: Guided tour for new users
+14. **Performance**: Lazy loading, image optimization, virtualized lists
+15. **Mobile-First**: Responsive utilities and components
+16. **Interactive Demos**: Live compounding visualizer
+
+This implementation satisfies all UI/UX requirements for the hackathon and provides a polished, professional experience for the Auto‑Compounder Vault.
+
+

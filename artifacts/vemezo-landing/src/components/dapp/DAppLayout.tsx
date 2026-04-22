@@ -4,6 +4,7 @@ import { useWalletConnection } from "@/hooks/wallet/useWalletConnection";
 import { Button } from "@/components/ui/button";
 import { WalletModal }    from "@/components/wallet/WalletModal";
 import { AccountDisplay } from "@/components/wallet/AccountDisplay";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, Vault, BarChart3, BookOpen, Menu, X, Wallet,
   TrendingUp, ArrowLeftRight, Vote, Trophy, History, Settings,
@@ -209,7 +210,17 @@ export function DAppLayout({ children }: { children: React.ReactNode }) {
 
         <main className="flex-1 p-4 md:p-8 overflow-y-auto pb-24 md:pb-8">
           <div className="max-w-6xl mx-auto">
-            {children}
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={location}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.28, ease: "easeOut" }}
+              >
+                {children}
+              </motion.div>
+            </AnimatePresence>
           </div>
         </main>
       </div>
