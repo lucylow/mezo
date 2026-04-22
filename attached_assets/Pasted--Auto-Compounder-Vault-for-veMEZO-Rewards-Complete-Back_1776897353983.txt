@@ -1,0 +1,1344 @@
+# Auto‑Compounder Vault for veMEZO Rewards – Complete Backend Implementation
+
+## 1. Overview
+
+This document provides a comprehensive, production‑ready backend implementation for the **Auto‑Compounder Vault for veMEZO Rewards** dApp. The backend architecture consists of four interconnected layers:
+
+1. **Smart Contracts (Solidity)**: On‑chain vault contract implementing ERC‑4626, veMEZO NFT management, automated compounding logic, and MUSD fee collection
+2. **Indexer Layer (Goldsky Subgraph)**: Off‑chain data indexing for efficient querying of user positions, historical yields, and protocol metrics
+3. **API Layer (Next.js Route Handlers)**: RESTful and GraphQL endpoints for frontend data consumption
+4. **Automation Layer (Keeper Bot)**: Scheduled execution of compounding operations via cron jobs or OpenZeppelin Defender
+
+The Mezo chain is a fully EVM‑compatible blockchain built on the Cosmos SDK with CometBFT consensus, using BTC as the native gas token. Testnet uses chain ID `31611` and RPC endpoint `https://rpc.test.mezo.org`.
+
+
+## 2. Smart Contract Implementation
+
+### 2.1 Project Structure & Hardhat Configuration
+
+`hardhat.config.ts`
+
+```typescript
+import { HardhatUserConfig } from "hardhat/config";
+import "@nomicfoundation/hardhat-toolbox";
+import "@nomicfoundation/hardhat-verify";
+import "dotenv/config";
+
+const config: HardhatUserConfig = {
+  solidity: {
+    version: "0.8.26",
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 200,
+      },
+      viaIR: true,
+    },
+  },
+  networks: {
+    hardhat: {
+      chainId: 31337,
+    },
+    mezoTestnet: {
+      url: "https://rpc.test.mezo.org",
+      chainId: 31611,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+    },
+    mezoMainnet: {
+      url: "https://rpc.mezo.org",
+      chainId: 31612,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+    },
+  },
+  etherscan: {
+    apiKey: {
+      mezoTestnet: "not-needed",
+      mezoMainnet: "not-needed",
+    },
+    customChains: [
+      {
+        network: "mezoTestnet",
+        chainId: 31611,
+        urls: {
+          apiURL: "https://explorer.test.mezo.org/api",
+          browserURL: "https://explorer.test.mezo.org",
+        },
+      },
+      {
+        network: "mezoMainnet",
+        chainId: 31612,
+        urls: {
+          apiURL: "https://explorer.mezo.org/api",
+          browserURL: "https://explorer.mezo.org",
+        },
+      },
+    ],
+  },
+};
+
+export default config;
+```
+
+### 2.2 Core Interfaces
+
+`contracts/interfaces/IVeMEZO.sol`
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+
+interface IVeMEZO is IERC721 {
+    function createLock(uint256 amount, uint256 unlockTime) external returns (uint256 tokenId);
+    function increaseAmount(uint256 tokenId, uint256 amount) external;
+    function increaseUnlockTime(uint256 tokenId, uint256 unlockTime) external;
+    function withdraw(uint256 tokenId) external;
+    function claimRebase(uint256 tokenId) external returns (uint256 amount);
+    function balanceOfNFT(uint256 tokenId) external view returns (uint256);
+    function locked(uint256 tokenId) external view returns (int128 amount, uint256 end);
+    function totalSupply() external view returns (uint256);
+    function token() external view returns (address);
+}
+```
+
+`contracts/interfaces/IGaugeController.sol`
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+interface IGaugeController {
+    function vote(uint256 tokenId, address gauge, uint256 weight) external;
+    function claimRewards(uint256 tokenId) external returns (uint256 amount);
+    function claimRewardsForGauge(uint256 tokenId, address gauge) external returns (uint256 amount);
+    function pendingRewards(uint256 tokenId) external view returns (uint256 amount);
+    function gauges(address gauge) external view returns (
+        uint256 totalWeight,
+        uint256 rewardRate,
+        uint256 periodFinish
+    );
+    function getActiveGauges() external view returns (address[] memory);
+}
+```
+
+`contracts/interfaces/IMUSD.sol`
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+interface IMUSD is IERC20 {
+    function mint(address to, uint256 amount) external;
+    function burn(address from, uint256 amount) external;
+    function getBTCPrice() external view returns (uint256 price);
+    function totalCollateral() external view returns (uint256);
+}
+```
+
+### 2.3 Vault Share Token (ERC‑4626)
+
+`contracts/VeMEZOVaultToken.sol`
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "./interfaces/IERC4626.sol";
+
+contract VeMEZOVaultToken is ERC20, ERC20Burnable, Ownable2Step, ReentrancyGuard, IERC4626 {
+    address public immutable vault;
+    address public immutable override asset;
+    uint256 private _totalAssets;
+
+    modifier onlyVault() {
+        require(msg.sender == vault, "VeMEZOVaultToken: caller is not vault");
+        _;
+    }
+
+    constructor(string memory _name, string memory _symbol, address _vault, address _asset)
+        ERC20(_name, _symbol)
+        Ownable(msg.sender)
+    {
+        require(_vault != address(0), "Invalid vault address");
+        require(_asset != address(0), "Invalid asset address");
+        vault = _vault;
+        asset = _asset;
+    }
+
+    function totalAssets() public view override returns (uint256) {
+        return _totalAssets;
+    }
+
+    function convertToShares(uint256 assets) public view override returns (uint256) {
+        uint256 supply = totalSupply();
+        return supply == 0 ? assets : (assets * supply) / _totalAssets;
+    }
+
+    function convertToAssets(uint256 shares) public view override returns (uint256) {
+        uint256 supply = totalSupply();
+        return supply == 0 ? shares : (shares * _totalAssets) / supply;
+    }
+
+    function maxDeposit(address) public pure override returns (uint256) {
+        return type(uint256).max;
+    }
+
+    function maxMint(address) public pure override returns (uint256) {
+        return type(uint256).max;
+    }
+
+    function maxWithdraw(address owner) public view override returns (uint256) {
+        return convertToAssets(balanceOf(owner));
+    }
+
+    function maxRedeem(address owner) public view override returns (uint256) {
+        return balanceOf(owner);
+    }
+
+    function previewDeposit(uint256 assets) public view override returns (uint256) {
+        return convertToShares(assets);
+    }
+
+    function previewMint(uint256 shares) public view override returns (uint256) {
+        return convertToAssets(shares);
+    }
+
+    function previewWithdraw(uint256 assets) public view override returns (uint256) {
+        return convertToShares(assets);
+    }
+
+    function previewRedeem(uint256 shares) public view override returns (uint256) {
+        return convertToAssets(shares);
+    }
+
+    function mintShares(address to, uint256 assets) external onlyVault nonReentrant returns (uint256 shares) {
+        shares = convertToShares(assets);
+        require(shares > 0, "VeMEZOVaultToken: zero shares");
+        _mint(to, shares);
+        _totalAssets += assets;
+        emit Deposit(msg.sender, to, assets, shares);
+        return shares;
+    }
+
+    function burnShares(address from, uint256 shares) external onlyVault nonReentrant returns (uint256 assets) {
+        assets = convertToAssets(shares);
+        require(assets > 0, "VeMEZOVaultToken: zero assets");
+        require(assets <= _totalAssets, "VeMEZOVaultToken: insufficient assets");
+        _burn(from, shares);
+        _totalAssets -= assets;
+        emit Withdraw(msg.sender, from, from, assets, shares);
+        return assets;
+    }
+
+    function updateTotalAssets(uint256 newTotalAssets) external onlyVault {
+        _totalAssets = newTotalAssets;
+    }
+
+    function deposit(uint256 assets, address receiver) external override returns (uint256) {
+        revert("Use vault.deposit()");
+    }
+
+    function mint(uint256 shares, address receiver) external override returns (uint256) {
+        revert("Use vault.deposit()");
+    }
+
+    function withdraw(uint256 assets, address receiver, address owner) external override returns (uint256) {
+        revert("Use vault.withdraw()");
+    }
+
+    function redeem(uint256 shares, address receiver, address owner) external override returns (uint256) {
+        revert("Use vault.withdraw()");
+    }
+
+    function emergencyUpdateTotalAssets(uint256 newTotalAssets) external onlyOwner {
+        _totalAssets = newTotalAssets;
+    }
+}
+```
+
+### 2.4 Main Vault Contract
+
+`contracts/VeMEZOAutoCompounder.sol`
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+
+import "./interfaces/IVeMEZO.sol";
+import "./interfaces/IGaugeController.sol";
+import "./interfaces/IMUSD.sol";
+import "./VeMEZOVaultToken.sol";
+
+contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard, Pausable {
+    using SafeERC20 for IERC20;
+    using EnumerableSet for EnumerableSet.UintSet;
+
+    IVeMEZO public immutable veMEZO;
+    IGaugeController public immutable gaugeController;
+    IERC20 public immutable mezoToken;
+    IMUSD public immutable musdToken;
+    VeMEZOVaultToken public immutable vaultToken;
+
+    address public keeper;
+    uint256 public performanceFee = 1000;
+    uint256 public constant MAX_PERFORMANCE_FEE = 2000;
+    address public treasury;
+    uint256 public minDepositValue = 1e18;
+    uint256 public totalUnderlying;
+    uint256 public lastCompoundTime;
+    bool public autoMaxLock = true;
+    uint256 public constant MAX_LOCK_DURATION = 4 * 365 days;
+
+    mapping(uint256 => address) public nftOwner;
+    mapping(address => EnumerableSet.UintSet) private userTokenIds;
+    EnumerableSet.UintSet private depositedTokenIds;
+
+    event Deposited(address indexed user, uint256 indexed tokenId, uint256 value, uint256 shares);
+    event Withdrawn(address indexed user, uint256 indexed tokenId, uint256 value, uint256 shares);
+    event Compounded(uint256 totalRewards, uint256 fee, uint256 amountCompounded);
+    event KeeperUpdated(address indexed oldKeeper, address indexed newKeeper);
+    event PerformanceFeeUpdated(uint256 oldFee, uint256 newFee);
+    event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
+    event MinDepositValueUpdated(uint256 oldValue, uint256 newValue);
+    event AutoMaxLockUpdated(bool enabled);
+    event EmergencyWithdrawal(address indexed user, uint256 indexed tokenId);
+
+    modifier onlyKeeper() {
+        require(msg.sender == keeper, "VeMEZOAutoCompounder: caller is not keeper");
+        _;
+    }
+
+    constructor(
+        address _veMEZO,
+        address _gaugeController,
+        address _mezoToken,
+        address _musdToken,
+        address _treasury
+    ) Ownable(msg.sender) {
+        require(_veMEZO != address(0), "Invalid veMEZO address");
+        require(_gaugeController != address(0), "Invalid gauge controller");
+        require(_mezoToken != address(0), "Invalid MEZO token");
+        require(_musdToken != address(0), "Invalid MUSD token");
+        require(_treasury != address(0), "Invalid treasury");
+
+        veMEZO = IVeMEZO(_veMEZO);
+        gaugeController = IGaugeController(_gaugeController);
+        mezoToken = IERC20(_mezoToken);
+        musdToken = IMUSD(_musdToken);
+        treasury = _treasury;
+        keeper = msg.sender;
+
+        vaultToken = new VeMEZOVaultToken(
+            "Vault veMEZO Share",
+            "vveMEZO",
+            address(this),
+            _mezoToken
+        );
+    }
+
+    function deposit(uint256 tokenId) external whenNotPaused nonReentrant returns (uint256 shares) {
+        require(veMEZO.ownerOf(tokenId) == msg.sender, "Not owner");
+        uint256 nftValue = veMEZO.balanceOfNFT(tokenId);
+        require(nftValue >= minDepositValue, "Below minimum");
+
+        nftOwner[tokenId] = msg.sender;
+        userTokenIds[msg.sender].add(tokenId);
+        depositedTokenIds.add(tokenId);
+        totalUnderlying += nftValue;
+
+        shares = vaultToken.mintShares(msg.sender, nftValue);
+        emit Deposited(msg.sender, tokenId, nftValue, shares);
+        veMEZO.safeTransferFrom(msg.sender, address(this), tokenId);
+        return shares;
+    }
+
+    function depositBatch(uint256[] calldata tokenIds) external whenNotPaused nonReentrant returns (uint256 totalShares) {
+        uint256 totalValue = 0;
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint256 tokenId = tokenIds[i];
+            require(veMEZO.ownerOf(tokenId) == msg.sender, "Not owner");
+            uint256 nftValue = veMEZO.balanceOfNFT(tokenId);
+            require(nftValue >= minDepositValue, "Below minimum");
+            nftOwner[tokenId] = msg.sender;
+            userTokenIds[msg.sender].add(tokenId);
+            depositedTokenIds.add(tokenId);
+            totalValue += nftValue;
+            emit Deposited(msg.sender, tokenId, nftValue, 0);
+        }
+        totalUnderlying += totalValue;
+        totalShares = vaultToken.mintShares(msg.sender, totalValue);
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            veMEZO.safeTransferFrom(msg.sender, address(this), tokenIds[i]);
+        }
+        return totalShares;
+    }
+
+    function withdraw(uint256 tokenId) external nonReentrant returns (uint256 shares) {
+        require(nftOwner[tokenId] == msg.sender, "Not owner");
+        uint256 nftValue = veMEZO.balanceOfNFT(tokenId);
+        shares = vaultToken.convertToShares(nftValue);
+        require(shares <= vaultToken.balanceOf(msg.sender), "Insufficient shares");
+
+        delete nftOwner[tokenId];
+        userTokenIds[msg.sender].remove(tokenId);
+        depositedTokenIds.remove(tokenId);
+        totalUnderlying -= nftValue;
+
+        uint256 assets = vaultToken.burnShares(msg.sender, shares);
+        emit Withdrawn(msg.sender, tokenId, assets, shares);
+        veMEZO.safeTransferFrom(address(this), msg.sender, tokenId);
+        return shares;
+    }
+
+    function withdrawByShares(uint256 shares) external nonReentrant returns (uint256 tokenId) {
+        require(shares > 0, "Zero shares");
+        require(shares <= vaultToken.balanceOf(msg.sender), "Insufficient shares");
+        tokenId = _findWithdrawableNFT(msg.sender, shares);
+        require(tokenId != 0, "No suitable NFT");
+
+        uint256 nftValue = veMEZO.balanceOfNFT(tokenId);
+        delete nftOwner[tokenId];
+        userTokenIds[msg.sender].remove(tokenId);
+        depositedTokenIds.remove(tokenId);
+        totalUnderlying -= nftValue;
+
+        uint256 assets = vaultToken.burnShares(msg.sender, shares);
+        emit Withdrawn(msg.sender, tokenId, assets, shares);
+        veMEZO.safeTransferFrom(address(this), msg.sender, tokenId);
+        return tokenId;
+    }
+
+    function compoundAll() external onlyKeeper whenNotPaused nonReentrant returns (
+        uint256 totalRewards,
+        uint256 totalFee,
+        uint256 totalCompounded
+    ) {
+        uint256[] memory tokenIds = getDepositedTokenIds();
+        require(tokenIds.length > 0, "No deposits");
+        uint256 rewardsSum = 0;
+        uint256 feeSum = 0;
+        uint256 compoundedSum = 0;
+
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            (uint256 rewards, uint256 fee, uint256 compounded) = _compound(tokenIds[i]);
+            rewardsSum += rewards;
+            feeSum += fee;
+            compoundedSum += compounded;
+        }
+
+        totalUnderlying = _calculateTotalUnderlying();
+        vaultToken.updateTotalAssets(totalUnderlying);
+        lastCompoundTime = block.timestamp;
+        emit Compounded(rewardsSum, feeSum, compoundedSum);
+        return (rewardsSum, feeSum, compoundedSum);
+    }
+
+    function _compound(uint256 tokenId) internal returns (uint256 rewards, uint256 fee, uint256 compounded) {
+        require(nftOwner[tokenId] != address(0), "Token not deposited");
+        uint256 rebaseAmount = 0;
+        uint256 incentiveAmount = 0;
+        try veMEZO.claimRebase(tokenId) returns (uint256 amount) { rebaseAmount = amount; } catch {}
+        try gaugeController.claimRewards(tokenId) returns (uint256 amount) { incentiveAmount = amount; } catch {}
+
+        rewards = rebaseAmount + incentiveAmount;
+        if (rewards == 0) return (0, 0, 0);
+
+        fee = (rewards * performanceFee) / 10000;
+        compounded = rewards - fee;
+
+        if (fee > 0) _collectFee(fee);
+        if (compounded > 0) {
+            mezoToken.safeApprove(address(veMEZO), compounded);
+            veMEZO.increaseAmount(tokenId, compounded);
+            if (autoMaxLock) {
+                veMEZO.increaseUnlockTime(tokenId, block.timestamp + MAX_LOCK_DURATION);
+            }
+        }
+        return (rewards, fee, compounded);
+    }
+
+    function _collectFee(uint256 feeAmount) internal {
+        if (feeAmount > 0) mezoToken.safeTransfer(treasury, feeAmount);
+    }
+
+    function _findWithdrawableNFT(address user, uint256 shares) internal view returns (uint256 tokenId) {
+        uint256 targetValue = vaultToken.convertToAssets(shares);
+        uint256 bestTokenId = 0;
+        uint256 bestDiff = type(uint256).max;
+        uint256[] memory tokens = getUserTokenIds(user);
+        for (uint256 i = 0; i < tokens.length; i++) {
+            uint256 value = veMEZO.balanceOfNFT(tokens[i]);
+            uint256 diff = value > targetValue ? value - targetValue : targetValue - value;
+            if (diff < bestDiff) { bestDiff = diff; bestTokenId = tokens[i]; }
+        }
+        return bestTokenId;
+    }
+
+    function getDepositedTokenIds() public view returns (uint256[] memory) {
+        return depositedTokenIds.values();
+    }
+
+    function getDepositedTokenCount() public view returns (uint256) {
+        return depositedTokenIds.length();
+    }
+
+    function getUserTokenIds(address user) public view returns (uint256[] memory) {
+        return userTokenIds[user].values();
+    }
+
+    function getUserTokenCount(address user) public view returns (uint256) {
+        return userTokenIds[user].length();
+    }
+
+    function getPendingRewards() public view returns (uint256 totalPending) {
+        uint256[] memory tokenIds = getDepositedTokenIds();
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            totalPending += gaugeController.pendingRewards(tokenIds[i]);
+        }
+        return totalPending;
+    }
+
+    function checkUpkeep(uint256 gasPrice) public view returns (bool canCompound) {
+        uint256 pendingRewards = getPendingRewards();
+        if (pendingRewards == 0) return false;
+        uint256 estimatedGas = 300000 + (getDepositedTokenCount() * 200000);
+        uint256 gasCost = gasPrice * estimatedGas;
+        return pendingRewards > (gasCost * 11) / 10;
+    }
+
+    function _calculateTotalUnderlying() internal view returns (uint256 total) {
+        uint256[] memory tokenIds = getDepositedTokenIds();
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            total += veMEZO.balanceOfNFT(tokenIds[i]);
+        }
+        return total;
+    }
+
+    function calculateTotalUnderlying() public view returns (uint256) {
+        return _calculateTotalUnderlying();
+    }
+
+    function updateKeeper(address newKeeper) external onlyOwner {
+        require(newKeeper != address(0), "Invalid keeper");
+        address oldKeeper = keeper;
+        keeper = newKeeper;
+        emit KeeperUpdated(oldKeeper, newKeeper);
+    }
+
+    function setPerformanceFee(uint256 newFee) external onlyOwner {
+        require(newFee <= MAX_PERFORMANCE_FEE, "Fee exceeds maximum");
+        uint256 oldFee = performanceFee;
+        performanceFee = newFee;
+        emit PerformanceFeeUpdated(oldFee, newFee);
+    }
+
+    function setTreasury(address newTreasury) external onlyOwner {
+        require(newTreasury != address(0), "Invalid treasury");
+        address oldTreasury = treasury;
+        treasury = newTreasury;
+        emit TreasuryUpdated(oldTreasury, newTreasury);
+    }
+
+    function setMinDepositValue(uint256 newMinDeposit) external onlyOwner {
+        uint256 oldValue = minDepositValue;
+        minDepositValue = newMinDeposit;
+        emit MinDepositValueUpdated(oldValue, newMinDeposit);
+    }
+
+    function setAutoMaxLock(bool enabled) external onlyOwner {
+        autoMaxLock = enabled;
+        emit AutoMaxLockUpdated(enabled);
+    }
+
+    function pause() external onlyOwner { _pause(); }
+    function unpause() external onlyOwner { _unpause(); }
+
+    function emergencyWithdraw(uint256 tokenId, address to) external onlyOwner {
+        require(nftOwner[tokenId] != address(0), "Token not deposited");
+        require(to != address(0), "Invalid recipient");
+        address user = nftOwner[tokenId];
+        uint256 nftValue = veMEZO.balanceOfNFT(tokenId);
+        delete nftOwner[tokenId];
+        userTokenIds[user].remove(tokenId);
+        depositedTokenIds.remove(tokenId);
+        totalUnderlying -= nftValue;
+        uint256 shares = vaultToken.convertToShares(nftValue);
+        vaultToken.burnShares(user, shares);
+        emit EmergencyWithdrawal(user, tokenId);
+        veMEZO.safeTransferFrom(address(this), to, tokenId);
+    }
+
+    function onERC721Received(address, address, uint256, bytes calldata) external override returns (bytes4) {
+        require(msg.sender == address(veMEZO), "Only veMEZO NFTs accepted");
+        return this.onERC721Received.selector;
+    }
+}
+```
+
+### 2.5 Deployment Script
+
+`scripts/deploy.ts`
+
+```typescript
+import { ethers } from "hardhat";
+
+async function main() {
+  const [deployer] = await ethers.getSigners();
+  console.log("Deploying with:", deployer.address);
+
+  // Mezo Testnet addresses (update from @mezo-org/euphrates-contracts)
+  const VEMEZO_ADDRESS = "0x0000000000000000000000000000000000000000";
+  const GAUGE_CONTROLLER_ADDRESS = "0x0000000000000000000000000000000000000000";
+  const MEZO_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
+  const MUSD_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
+  const TREASURY_ADDRESS = deployer.address;
+
+  const VeMEZOAutoCompounder = await ethers.getContractFactory("VeMEZOAutoCompounder");
+  const vault = await VeMEZOAutoCompounder.deploy(
+    VEMEZO_ADDRESS,
+    GAUGE_CONTROLLER_ADDRESS,
+    MEZO_TOKEN_ADDRESS,
+    MUSD_TOKEN_ADDRESS,
+    TREASURY_ADDRESS
+  );
+
+  await vault.waitForDeployment();
+  const vaultAddress = await vault.getAddress();
+  console.log("VeMEZOAutoCompounder deployed to:", vaultAddress);
+
+  const vaultTokenAddress = await vault.vaultToken();
+  console.log("Vault Token (vveMEZO) deployed to:", vaultTokenAddress);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+```
+
+
+## 3. Goldsky Subgraph Implementation
+
+Goldsky provides subgraph hosting and real‑time data replication pipelines on Mezo Testnet using the slug `mezo-testnet`. The subgraph indexes vault events for efficient querying.
+
+### 3.1 `subgraph.yaml`
+
+```yaml
+specVersion: 0.0.5
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: VeMEZOAutoCompounder
+    network: mezo-testnet
+    source:
+      address: "0x0000000000000000000000000000000000000000"
+      abi: VeMEZOAutoCompounder
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - Vault
+        - User
+        - Deposit
+        - Withdrawal
+        - Compound
+      abis:
+        - name: VeMEZOAutoCompounder
+          file: ./abis/VeMEZOAutoCompounder.json
+      eventHandlers:
+        - event: Deposited(indexed address,indexed uint256,uint256,uint256)
+          handler: handleDeposited
+        - event: Withdrawn(indexed address,indexed uint256,uint256,uint256)
+          handler: handleWithdrawn
+        - event: Compounded(uint256,uint256,uint256)
+          handler: handleCompounded
+      file: ./src/mapping.ts
+```
+
+### 3.2 `schema.graphql`
+
+```graphql
+type Vault @entity {
+  id: ID!
+  totalUnderlying: BigInt!
+  totalShares: BigInt!
+  performanceFee: Int!
+  lastCompoundTime: BigInt!
+  totalDeposits: Int!
+  totalCompounded: BigInt!
+  totalFeesCollected: BigInt!
+  createdAt: BigInt!
+  updatedAt: BigInt!
+}
+
+type User @entity {
+  id: ID!
+  address: Bytes!
+  shareBalance: BigInt!
+  underlyingValue: BigInt!
+  deposits: [Deposit!]! @derivedFrom(field: "user")
+  withdrawals: [Withdrawal!]! @derivedFrom(field: "user")
+  tokenIds: [String!]!
+  createdAt: BigInt!
+  updatedAt: BigInt!
+}
+
+type Deposit @entity {
+  id: ID!
+  user: User!
+  tokenId: BigInt!
+  value: BigInt!
+  shares: BigInt!
+  transactionHash: Bytes!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type Withdrawal @entity {
+  id: ID!
+  user: User!
+  tokenId: BigInt!
+  value: BigInt!
+  shares: BigInt!
+  transactionHash: Bytes!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type Compound @entity {
+  id: ID!
+  totalRewards: BigInt!
+  fee: BigInt!
+  amountCompounded: BigInt!
+  transactionHash: Bytes!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type DailyMetric @entity {
+  id: ID!
+  date: Int!
+  tvl: BigInt!
+  totalShares: BigInt!
+  totalUsers: Int!
+  dailyRewards: BigInt!
+  dailyFees: BigInt!
+}
+```
+
+### 3.3 `src/mapping.ts`
+
+```typescript
+import { BigInt, Bytes, log } from "@graphprotocol/graph-ts";
+import {
+  Deposited,
+  Withdrawn,
+  Compounded,
+} from "../generated/VeMEZOAutoCompounder/VeMEZOAutoCompounder";
+import { Vault, User, Deposit, Withdrawal, Compound, DailyMetric } from "../generated/schema";
+
+const VAULT_ID = "vemezo-auto-compounder";
+const SECONDS_PER_DAY = 86400;
+
+function getOrCreateVault(): Vault {
+  let vault = Vault.load(VAULT_ID);
+  if (!vault) {
+    vault = new Vault(VAULT_ID);
+    vault.totalUnderlying = BigInt.zero();
+    vault.totalShares = BigInt.zero();
+    vault.performanceFee = 1000;
+    vault.lastCompoundTime = BigInt.zero();
+    vault.totalDeposits = 0;
+    vault.totalCompounded = BigInt.zero();
+    vault.totalFeesCollected = BigInt.zero();
+    vault.createdAt = BigInt.zero();
+    vault.updatedAt = BigInt.zero();
+  }
+  return vault;
+}
+
+function getOrCreateUser(address: Bytes): User {
+  let id = address.toHexString();
+  let user = User.load(id);
+  if (!user) {
+    user = new User(id);
+    user.address = address;
+    user.shareBalance = BigInt.zero();
+    user.underlyingValue = BigInt.zero();
+    user.tokenIds = [];
+    user.createdAt = BigInt.zero();
+    user.updatedAt = BigInt.zero();
+  }
+  return user;
+}
+
+function getOrCreateDailyMetric(timestamp: BigInt): DailyMetric {
+  let date = timestamp.toI32() / SECONDS_PER_DAY;
+  let id = date.toString();
+  let metric = DailyMetric.load(id);
+  if (!metric) {
+    metric = new DailyMetric(id);
+    metric.date = date;
+    metric.tvl = BigInt.zero();
+    metric.totalShares = BigInt.zero();
+    metric.totalUsers = 0;
+    metric.dailyRewards = BigInt.zero();
+    metric.dailyFees = BigInt.zero();
+  }
+  return metric;
+}
+
+export function handleDeposited(event: Deposited): void {
+  let vault = getOrCreateVault();
+  let user = getOrCreateUser(event.params.user);
+
+  vault.totalUnderlying = vault.totalUnderlying.plus(event.params.value);
+  vault.totalShares = vault.totalShares.plus(event.params.shares);
+  vault.totalDeposits += 1;
+  vault.updatedAt = event.block.timestamp;
+
+  let tokenIds = user.tokenIds;
+  tokenIds.push(event.params.tokenId.toString());
+  user.tokenIds = tokenIds;
+  user.shareBalance = user.shareBalance.plus(event.params.shares);
+  user.updatedAt = event.block.timestamp;
+  if (user.createdAt.isZero()) user.createdAt = event.block.timestamp;
+
+  let deposit = new Deposit(event.transaction.hash.toHexString() + "-" + event.logIndex.toString());
+  deposit.user = user.id;
+  deposit.tokenId = event.params.tokenId;
+  deposit.value = event.params.value;
+  deposit.shares = event.params.shares;
+  deposit.transactionHash = event.transaction.hash;
+  deposit.blockNumber = event.block.number;
+  deposit.timestamp = event.block.timestamp;
+  deposit.save();
+
+  let metric = getOrCreateDailyMetric(event.block.timestamp);
+  metric.tvl = vault.totalUnderlying;
+  metric.totalShares = vault.totalShares;
+  metric.totalUsers = vault.totalDeposits;
+  metric.save();
+
+  vault.save();
+  user.save();
+}
+
+export function handleWithdrawn(event: Withdrawn): void {
+  let vault = getOrCreateVault();
+  let user = getOrCreateUser(event.params.user);
+
+  vault.totalUnderlying = vault.totalUnderlying.minus(event.params.value);
+  vault.totalShares = vault.totalShares.minus(event.params.shares);
+  vault.updatedAt = event.block.timestamp;
+
+  let tokenIds = user.tokenIds;
+  let idx = tokenIds.indexOf(event.params.tokenId.toString());
+  if (idx >= 0) tokenIds.splice(idx, 1);
+  user.tokenIds = tokenIds;
+  user.shareBalance = user.shareBalance.minus(event.params.shares);
+  user.updatedAt = event.block.timestamp;
+
+  let withdrawal = new Withdrawal(event.transaction.hash.toHexString() + "-" + event.logIndex.toString());
+  withdrawal.user = user.id;
+  withdrawal.tokenId = event.params.tokenId;
+  withdrawal.value = event.params.value;
+  withdrawal.shares = event.params.shares;
+  withdrawal.transactionHash = event.transaction.hash;
+  withdrawal.blockNumber = event.block.number;
+  withdrawal.timestamp = event.block.timestamp;
+  withdrawal.save();
+
+  let metric = getOrCreateDailyMetric(event.block.timestamp);
+  metric.tvl = vault.totalUnderlying;
+  metric.totalShares = vault.totalShares;
+  metric.save();
+
+  vault.save();
+  user.save();
+}
+
+export function handleCompounded(event: Compounded): void {
+  let vault = getOrCreateVault();
+
+  vault.totalCompounded = vault.totalCompounded.plus(event.params.amountCompounded);
+  vault.totalFeesCollected = vault.totalFeesCollected.plus(event.params.fee);
+  vault.lastCompoundTime = event.block.timestamp;
+  vault.updatedAt = event.block.timestamp;
+
+  let compound = new Compound(event.transaction.hash.toHexString() + "-" + event.logIndex.toString());
+  compound.totalRewards = event.params.totalRewards;
+  compound.fee = event.params.fee;
+  compound.amountCompounded = event.params.amountCompounded;
+  compound.transactionHash = event.transaction.hash;
+  compound.blockNumber = event.block.number;
+  compound.timestamp = event.block.timestamp;
+  compound.save();
+
+  let metric = getOrCreateDailyMetric(event.block.timestamp);
+  metric.dailyRewards = metric.dailyRewards.plus(event.params.totalRewards);
+  metric.dailyFees = metric.dailyFees.plus(event.params.fee);
+  metric.save();
+
+  vault.save();
+}
+```
+
+### 3.4 Goldsky Deployment
+
+```bash
+# Install Goldsky CLI
+npm install -g @goldskycom/cli
+
+# Login
+goldsky login
+
+# Deploy subgraph
+goldsky subgraph deploy vemezo-auto-compounder/1.0.0 --path .
+```
+
+**Query Examples:**
+
+```graphql
+# Get user position
+query GetUserPosition($address: String!) {
+  user(id: $address) {
+    shareBalance
+    underlyingValue
+    tokenIds
+    deposits { value shares timestamp }
+  }
+}
+
+# Get vault metrics
+query GetVaultMetrics {
+  vault(id: "vemezo-auto-compounder") {
+    totalUnderlying
+    totalShares
+    totalCompounded
+    totalFeesCollected
+    lastCompoundTime
+  }
+}
+
+# Get historical data
+query GetHistoricalMetrics($days: Int!) {
+  dailyMetrics(first: $days, orderBy: date, orderDirection: desc) {
+    date
+    tvl
+    dailyRewards
+    dailyFees
+    totalUsers
+  }
+}
+```
+
+
+## 4. Next.js API Routes
+
+### 4.1 Subgraph Client
+
+`lib/subgraph/client.ts`
+
+```typescript
+const SUBGRAPH_URL = process.env.GOLDSTY_SUBGRAPH_URL || "https://api.goldsky.com/api/public/...";
+
+export async function subgraphRequest<T = any>(
+  query: string,
+  variables?: Record<string, any>
+): Promise<T> {
+  const response = await fetch(SUBGRAPH_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, variables }),
+  });
+
+  if (!response.ok) throw new Error(`Subgraph error: ${response.status}`);
+  const json = await response.json();
+  if (json.errors) throw new Error(json.errors[0].message);
+  return json.data;
+}
+```
+
+### 4.2 Vault API Endpoints
+
+`app/api/vault/stats/route.ts`
+
+```typescript
+import { NextResponse } from "next/server";
+import { subgraphRequest } from "@/lib/subgraph/client";
+
+export async function GET() {
+  const query = `
+    query VaultStats {
+      vault(id: "vemezo-auto-compounder") {
+        totalUnderlying
+        totalShares
+        performanceFee
+        totalDeposits
+        totalCompounded
+        totalFeesCollected
+        lastCompoundTime
+      }
+      dailyMetrics(first: 7, orderBy: date, orderDirection: desc) {
+        date
+        tvl
+        dailyRewards
+        dailyFees
+      }
+    }
+  `;
+
+  const data = await subgraphRequest(query);
+  return NextResponse.json(data);
+}
+```
+
+`app/api/user/position/route.ts`
+
+```typescript
+import { NextRequest, NextResponse } from "next/server";
+import { subgraphRequest } from "@/lib/subgraph/client";
+
+export async function GET(req: NextRequest) {
+  const address = req.nextUrl.searchParams.get("address");
+  if (!address) return NextResponse.json({ error: "Address required" }, { status: 400 });
+
+  const query = `
+    query UserPosition($address: String!) {
+      user(id: $address) {
+        shareBalance
+        underlyingValue
+        tokenIds
+        deposits(first: 10, orderBy: timestamp, orderDirection: desc) {
+          tokenId
+          value
+          shares
+          timestamp
+        }
+        withdrawals(first: 10, orderBy: timestamp, orderDirection: desc) {
+          tokenId
+          value
+          shares
+          timestamp
+        }
+      }
+    }
+  `;
+
+  const data = await subgraphRequest(query, { address: address.toLowerCase() });
+  return NextResponse.json(data);
+}
+```
+
+### 4.3 GraphQL API Route
+
+`app/api/graphql/route.ts`
+
+```typescript
+import { NextRequest, NextResponse } from "next/server";
+import { subgraphRequest } from "@/lib/subgraph/client";
+
+export async function POST(req: NextRequest) {
+  const { query, variables } = await req.json();
+  try {
+    const data = await subgraphRequest(query, variables);
+    return NextResponse.json({ data });
+  } catch (error) {
+    return NextResponse.json({ errors: [{ message: (error as Error).message }] }, { status: 500 });
+  }
+}
+```
+
+
+## 5. Keeper Automation Bot
+
+The keeper bot automates the compounding operation. It can be implemented as a Node.js cron job or deployed via OpenZeppelin Defender Autotasks.
+
+### 5.1 Node.js Keeper Bot
+
+`keeper/index.ts`
+
+```typescript
+import { ethers } from "ethers";
+import cron from "node-cron";
+import winston from "winston";
+
+const RPC_URL = process.env.MEZO_RPC_URL || "https://rpc.test.mezo.org";
+const CHAIN_ID = 31611;
+const VAULT_ADDRESS = process.env.VAULT_ADDRESS!;
+const KEEPER_PRIVATE_KEY = process.env.KEEPER_PRIVATE_KEY!;
+const MAX_GAS_PRICE = ethers.parseUnits("100", "gwei");
+
+const VAULT_ABI = [
+  "function compoundAll() external returns (uint256,uint256,uint256)",
+  "function checkUpkeep(uint256 gasPrice) external view returns (bool)",
+  "function getPendingRewards() external view returns (uint256)",
+  "function getDepositedTokenCount() external view returns (uint256)",
+  "event Compounded(uint256 totalRewards, uint256 fee, uint256 amountCompounded)",
+];
+
+const logger = winston.createLogger({
+  level: "info",
+  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
+  transports: [
+    new winston.transports.File({ filename: "error.log", level: "error" }),
+    new winston.transports.File({ filename: "combined.log" }),
+    new winston.transports.Console({ format: winston.format.simple() }),
+  ],
+});
+
+async function compound() {
+  logger.info("Starting compounding check...");
+  try {
+    const provider = new ethers.JsonRpcProvider(RPC_URL);
+    const wallet = new ethers.Wallet(KEEPER_PRIVATE_KEY, provider);
+    const vault = new ethers.Contract(VAULT_ADDRESS, VAULT_ABI, wallet);
+
+    const feeData = await provider.getFeeData();
+    if (feeData.gasPrice && feeData.gasPrice > MAX_GAS_PRICE) {
+      logger.warn(`Gas price too high: ${ethers.formatUnits(feeData.gasPrice, "gwei")} gwei`);
+      return;
+    }
+
+    const gasPrice = feeData.gasPrice || ethers.parseUnits("10", "gwei");
+    const canCompound = await vault.checkUpkeep(gasPrice);
+    if (!canCompound) {
+      const pendingRewards = await vault.getPendingRewards();
+      const tokenCount = await vault.getDepositedTokenCount();
+      logger.info(`Not profitable. Pending: ${ethers.formatEther(pendingRewards)} MEZO, NFTs: ${tokenCount}`);
+      return;
+    }
+
+    logger.info("Executing compoundAll()...");
+    const tx = await vault.compoundAll();
+    logger.info(`Tx sent: ${tx.hash}`);
+    const receipt = await tx.wait();
+    logger.info(`Compounded! Block: ${receipt.blockNumber}, Gas: ${receipt.gasUsed}`);
+
+    const compoundedEvent = receipt.logs.find((l: any) => l.fragment?.name === "Compounded");
+    if (compoundedEvent) {
+      const [totalRewards, fee, amountCompounded] = compoundedEvent.args;
+      logger.info(`Rewards: ${ethers.formatEther(totalRewards)} MEZO, Fee: ${ethers.formatEther(fee)} MEZO`);
+    }
+
+    await sendDiscordNotification(tx.hash, receipt.blockNumber);
+  } catch (error) {
+    logger.error(`Compounding failed: ${(error as Error).message}`);
+    await sendDiscordAlert(`Compounding failed: ${(error as Error).message}`);
+  }
+}
+
+async function sendDiscordNotification(txHash: string, blockNumber: number) {
+  const webhook = process.env.DISCORD_WEBHOOK_URL;
+  if (!webhook) return;
+  await fetch(webhook, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      content: `✅ **veMEZO Compounded**\nTx: ${txHash}\nBlock: ${blockNumber}`,
+    }),
+  });
+}
+
+async function sendDiscordAlert(errorMessage: string) {
+  const webhook = process.env.DISCORD_ALERT_URL || process.env.DISCORD_WEBHOOK_URL;
+  if (!webhook) return;
+  await fetch(webhook, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content: `🚨 **Alert**\n${errorMessage}` }),
+  });
+}
+
+// Run after epoch ends (Thursdays 00:05 UTC)
+cron.schedule("5 0 * * 4", () => {
+  logger.info("Epoch ended. Compounding...");
+  compound();
+});
+
+// Backup: run every 6 hours
+cron.schedule("0 */6 * * *", () => {
+  logger.info("Periodic check...");
+  compound();
+});
+
+logger.info("Keeper bot started");
+compound().catch(console.error);
+
+process.on("SIGINT", () => { logger.info("Shutting down..."); process.exit(0); });
+```
+
+### 5.2 OpenZeppelin Defender Autotask
+
+For production, OpenZeppelin Defender provides secure automation infrastructure.
+
+```javascript
+// defender-autotask.js
+const { ethers } = require("ethers");
+
+const VAULT_ADDRESS = "0x...";
+const VAULT_ABI = [
+  "function compoundAll() external returns (uint256,uint256,uint256)",
+  "function checkUpkeep(uint256) view returns (bool)",
+];
+
+exports.handler = async function (event) {
+  const provider = new ethers.JsonRpcProvider(event.secrets.RPC_URL);
+  const signer = new ethers.Wallet(event.secrets.PRIVATE_KEY, provider);
+  const vault = new ethers.Contract(VAULT_ADDRESS, VAULT_ABI, signer);
+
+  const feeData = await provider.getFeeData();
+  const gasPrice = feeData.gasPrice || ethers.parseUnits("10", "gwei");
+  const canCompound = await vault.checkUpkeep(gasPrice);
+
+  if (!canCompound) {
+    console.log("Compounding not profitable");
+    return { success: false, reason: "not-profitable" };
+  }
+
+  const tx = await vault.compoundAll();
+  const receipt = await tx.wait();
+  console.log(`Compounded: ${receipt.transactionHash}`);
+  return { success: true, txHash: receipt.transactionHash };
+};
+```
+
+
+## 6. Environment Configuration
+
+### 6.1 `.env` for Backend Services
+
+```env
+# Mezo Network
+MEZO_RPC_URL=https://rpc.test.mezo.org
+MEZO_CHAIN_ID=31611
+
+# Contract Addresses (from deployment)
+VAULT_ADDRESS=0x...
+VEMEZO_ADDRESS=0x...
+GAUGE_CONTROLLER_ADDRESS=0x...
+MEZO_TOKEN_ADDRESS=0x...
+MUSD_TOKEN_ADDRESS=0x...
+
+# Keeper Configuration
+KEEPER_PRIVATE_KEY=your_private_key_here
+MAX_GAS_PRICE=100000000000
+
+# Goldsky
+GOLDSTY_SUBGRAPH_URL=https://api.goldsky.com/api/public/...
+
+# Discord Notifications
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+DISCORD_ALERT_URL=https://discord.com/api/webhooks/...
+
+# OpenZeppelin Defender (optional)
+DEFENDER_API_KEY=...
+DEFENDER_API_SECRET=...
+```
+
+
+## 7. Testing
+
+### 7.1 Hardhat Tests
+
+`test/VeMEZOAutoCompounder.test.ts`
+
+```typescript
+import { expect } from "chai";
+import { ethers } from "hardhat";
+import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+
+describe("VeMEZOAutoCompounder", function () {
+  async function deployFixture() {
+    const [owner, keeper, user] = await ethers.getSigners();
+
+    // Deploy mock contracts
+    const MockVeMEZO = await ethers.getContractFactory("MockVeMEZO");
+    const mockVeMEZO = await MockVeMEZO.deploy();
+
+    const MockGaugeController = await ethers.getContractFactory("MockGaugeController");
+    const mockGaugeController = await MockGaugeController.deploy();
+
+    const MockERC20 = await ethers.getContractFactory("MockERC20");
+    const mockMEZO = await MockERC20.deploy("MEZO", "MEZO", 18);
+    const mockMUSD = await MockERC20.deploy("MUSD", "MUSD", 18);
+
+    const VeMEZOAutoCompounder = await ethers.getContractFactory("VeMEZOAutoCompounder");
+    const vault = await VeMEZOAutoCompounder.deploy(
+      await mockVeMEZO.getAddress(),
+      await mockGaugeController.getAddress(),
+      await mockMEZO.getAddress(),
+      await mockMUSD.getAddress(),
+      owner.address
+    );
+
+    await vault.updateKeeper(keeper.address);
+    const vaultTokenAddress = await vault.vaultToken();
+    const vaultToken = await ethers.getContractAt("VeMEZOVaultToken", vaultTokenAddress);
+
+    return { vault, vaultToken, mockVeMEZO, mockGaugeController, mockMEZO, mockMUSD, owner, keeper, user };
+  }
+
+  it("should deploy correctly", async function () {
+    const { vault, vaultToken } = await loadFixture(deployFixture);
+    expect(await vault.keeper()).to.not.equal(ethers.ZeroAddress);
+    expect(await vaultToken.name()).to.equal("Vault veMEZO Share");
+  });
+
+  it("should accept veMEZO deposits", async function () {
+    const { vault, mockVeMEZO, user } = await loadFixture(deployFixture);
+    // Mint NFT to user and approve
+    await mockVeMEZO.mint(user.address, 1);
+    await mockVeMEZO.connect(user).approve(await vault.getAddress(), 1);
+    await vault.connect(user).deposit(1);
+    expect(await vault.nftOwner(1)).to.equal(user.address);
+  });
+
+  it("should allow keeper to compound", async function () {
+    const { vault, mockVeMEZO, mockGaugeController, user, keeper } = await loadFixture(deployFixture);
+    await mockVeMEZO.mint(user.address, 1);
+    await mockVeMEZO.connect(user).approve(await vault.getAddress(), 1);
+    await vault.connect(user).deposit(1);
+
+    // Set up mock rewards
+    await mockGaugeController.setPendingRewards(1, ethers.parseEther("100"));
+
+    await vault.connect(keeper).compoundAll();
+    expect(await vault.lastCompoundTime()).to.be.gt(0);
+  });
+});
+```
+
+
+## 8. Summary
+
+This complete backend implementation provides:
+
+1. **Smart Contracts**: ERC‑4626 vault share token, main vault contract with veMEZO NFT custody, automated compounding, and MUSD fee collection
+2. **Deployment Configuration**: Hardhat setup for Mezo Testnet (chain ID 31611) with RPC `https://rpc.test.mezo.org`
+3. **Goldsky Subgraph**: Event indexing for Deposited, Withdrawn, and Compounded events with GraphQL query layer
+4. **API Routes**: Next.js endpoints for vault stats, user positions, and a GraphQL proxy
+5. **Keeper Automation**: Node.js cron bot and OpenZeppelin Defender Autotask for scheduled compounding
+6. **Testing Suite**: Hardhat tests with mock contracts for local validation
+
+The system is fully integrated with Mezo's EVM‑compatible chain and leverages BTC as the native gas token. Contract addresses and ABIs are available through the official `@mezo-org/euphrates-contracts` and `@mezo-org/musd-contracts` npm packages.
+
+

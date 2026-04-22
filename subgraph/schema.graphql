@@ -1,0 +1,66 @@
+type Vault @entity {
+  id: ID!
+  totalUnderlying: BigInt!
+  totalShares: BigInt!
+  performanceFee: Int!
+  lastCompoundTime: BigInt!
+  totalDeposits: Int!
+  totalCompounded: BigInt!
+  totalFeesCollected: BigInt!
+  createdAt: BigInt!
+  updatedAt: BigInt!
+}
+
+type User @entity {
+  id: ID!
+  address: Bytes!
+  shareBalance: BigInt!
+  underlyingValue: BigInt!
+  deposits: [Deposit!]! @derivedFrom(field: "user")
+  withdrawals: [Withdrawal!]! @derivedFrom(field: "user")
+  tokenIds: [String!]!
+  createdAt: BigInt!
+  updatedAt: BigInt!
+}
+
+type Deposit @entity {
+  id: ID!
+  user: User!
+  tokenId: BigInt!
+  value: BigInt!
+  shares: BigInt!
+  transactionHash: Bytes!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type Withdrawal @entity {
+  id: ID!
+  user: User!
+  tokenId: BigInt!
+  value: BigInt!
+  shares: BigInt!
+  transactionHash: Bytes!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type Compound @entity {
+  id: ID!
+  totalRewards: BigInt!
+  fee: BigInt!
+  amountCompounded: BigInt!
+  transactionHash: Bytes!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type DailyMetric @entity {
+  id: ID!
+  date: Int!
+  tvl: BigInt!
+  totalShares: BigInt!
+  totalUsers: Int!
+  dailyRewards: BigInt!
+  dailyFees: BigInt!
+}

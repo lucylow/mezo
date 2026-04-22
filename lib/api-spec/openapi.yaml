@@ -1,15 +1,23 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
-  version: 0.1.0
-  description: API specification
+  version: 0.2.0
+  description: veMEZO Auto-Compounder API – vault metrics, user positions, keeper status
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: vault
+    description: Vault-level metrics and history
+  - name: user
+    description: Per-user positions and NFT holdings
+  - name: graphql
+    description: GraphQL proxy to Goldsky subgraph
+  - name: keeper
+    description: Keeper bot automation status
+
 paths:
   /healthz:
     get:
@@ -24,6 +32,173 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /vault/stats:
+    get:
+      operationId: getVaultStats
+      tags: [vault]
+      summary: Vault statistics
+      description: Returns aggregated vault metrics plus last 7 days of daily data.
+      responses:
+        "200":
+          description: Vault stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultStatsResponse"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /vault/history:
+    get:
+      operationId: getVaultHistory
+      tags: [vault]
+      summary: Historical daily metrics
+      description: Returns daily TVL + reward history for charting.
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 365
+          description: Number of days of history to return
+      responses:
+        "200":
+          description: Daily metrics array
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoryResponse"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /vault/compounds:
+    get:
+      operationId: getVaultCompounds
+      tags: [vault]
+      summary: Recent compound events
+      parameters:
+        - name: first
+          in: query
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Compound events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompoundsResponse"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /vault/activity:
+    get:
+      operationId: getVaultActivity
+      tags: [vault]
+      summary: Recent protocol-wide activity feed
+      responses:
+        "200":
+          description: Activity feed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityResponse"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /user/position:
+    get:
+      operationId: getUserPosition
+      tags: [user]
+      summary: User vault position
+      description: Returns shares, underlying value, and deposit/withdrawal history.
+      parameters:
+        - name: address
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Ethereum wallet address (0x…)
+      responses:
+        "200":
+          description: User position
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPositionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /user/nfts:
+    get:
+      operationId: getUserNFTs
+      tags: [user]
+      summary: User deposited NFT token IDs
+      parameters:
+        - name: address
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Token ID list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserNFTsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /graphql:
+    post:
+      operationId: graphqlProxy
+      tags: [graphql]
+      summary: GraphQL proxy to Goldsky subgraph
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GraphQLRequest"
+      responses:
+        "200":
+          description: GraphQL response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphQLResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /keeper/status:
+    get:
+      operationId: getKeeperStatus
+      tags: [keeper]
+      summary: Keeper bot status
+      description: Last run, next run, pending rewards, and profitability check.
+      responses:
+        "200":
+          description: Keeper status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeeperStatusResponse"
+        "500":
+          $ref: "#/components/responses/Error"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +206,201 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    VaultStats:
+      type: object
+      properties:
+        id:                  { type: string }
+        totalUnderlying:     { type: string }
+        totalShares:         { type: string }
+        performanceFee:      { type: integer }
+        lastCompoundTime:    { type: string }
+        totalDeposits:       { type: integer }
+        totalCompounded:     { type: string }
+        totalFeesCollected:  { type: string }
+        createdAt:           { type: string }
+        updatedAt:           { type: string }
+
+    DailyMetric:
+      type: object
+      properties:
+        date:          { type: integer }
+        tvl:           { type: string }
+        totalShares:   { type: string }
+        totalUsers:    { type: integer }
+        dailyRewards:  { type: string }
+        dailyFees:     { type: string }
+
+    CompoundEvent:
+      type: object
+      properties:
+        id:                { type: string }
+        totalRewards:      { type: string }
+        fee:               { type: string }
+        amountCompounded:  { type: string }
+        transactionHash:   { type: string }
+        blockNumber:       { type: string }
+        timestamp:         { type: string }
+
+    ActivityItem:
+      type: object
+      properties:
+        type:       { type: string, enum: [deposit, withdraw, compound] }
+        user:       { type: string }
+        tokenId:    { type: string, nullable: true }
+        value:      { type: string }
+        timestamp:  { type: string }
+
+    UserPosition:
+      type: object
+      properties:
+        id:               { type: string }
+        shareBalance:     { type: string }
+        underlyingValue:  { type: string }
+        tokenIds:
+          type: array
+          items: { type: string }
+        createdAt:  { type: string }
+        updatedAt:  { type: string }
+        deposits:
+          type: array
+          items: { $ref: "#/components/schemas/PositionEvent" }
+        withdrawals:
+          type: array
+          items: { $ref: "#/components/schemas/PositionEvent" }
+
+    PositionEvent:
+      type: object
+      properties:
+        tokenId:          { type: string }
+        value:            { type: string }
+        shares:           { type: string }
+        transactionHash:  { type: string }
+        blockNumber:      { type: string }
+        timestamp:        { type: string }
+
+    KeeperStatus:
+      type: object
+      properties:
+        lastRun:              { type: string }
+        nextRun:              { type: string }
+        pendingRewards:       { type: string }
+        depositedTokenCount:  { type: integer }
+        canCompound:          { type: boolean }
+        gasPrice:             { type: string }
+        estimatedGasCost:     { type: string }
+        profitMargin:         { type: string }
+        lastTxHash:           { type: string, nullable: true }
+        lastBlockNumber:      { type: integer }
+        network:              { type: string }
+        chainId:              { type: integer }
+
+    GraphQLRequest:
+      type: object
+      properties:
+        query:     { type: string }
+        variables: { type: object }
+      required: [query]
+
+    GraphQLResponse:
+      type: object
+      properties:
+        data:   { type: object }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              message: { type: string }
+
+    VaultStatsResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            vault:        { $ref: "#/components/schemas/VaultStats" }
+            dailyMetrics:
+              type: array
+              items: { $ref: "#/components/schemas/DailyMetric" }
+        source: { type: string, enum: [subgraph, mock] }
+
+    HistoryResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            dailyMetrics:
+              type: array
+              items: { $ref: "#/components/schemas/DailyMetric" }
+        source: { type: string }
+
+    CompoundsResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            compounds:
+              type: array
+              items: { $ref: "#/components/schemas/CompoundEvent" }
+        source: { type: string }
+
+    ActivityResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            activity:
+              type: array
+              items: { $ref: "#/components/schemas/ActivityItem" }
+        source: { type: string }
+
+    UserPositionResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            user: { $ref: "#/components/schemas/UserPosition" }
+        source: { type: string }
+
+    UserNFTsResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            tokenIds:
+              type: array
+              items: { type: string }
+        source: { type: string }
+
+    KeeperStatusResponse:
+      type: object
+      properties:
+        data: { $ref: "#/components/schemas/KeeperStatus" }
+        source: { type: string }
+
+  responses:
+    Error:
+      description: Server error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+            required: [error]
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+            required: [error]
