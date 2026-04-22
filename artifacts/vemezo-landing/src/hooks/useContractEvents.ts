@@ -12,66 +12,77 @@ import { useQueryClient } from "@tanstack/react-query";
 export function useVaultEvents() {
   const deployed = isContractDeployed();
   const addTx    = useTransactionStore((s) => s.addTransaction);
-  const updateTx = useTransactionStore((s) => s.updateTransaction);
   const qc       = useQueryClient();
 
   useWatchContractEvent({
-    address: CONTRACTS.VAULT,
-    abi:     VeMEZOVaultABI,
+    address:   CONTRACTS.VAULT,
+    abi:       VeMEZOVaultABI,
     eventName: "Deposited",
-    enabled: deployed,
+    enabled:   deployed,
     onLogs(logs) {
-      logs.forEach((log) => {
-        const { value } = log.args as { value?: bigint };
-        addTx({
-          hash:      log.transactionHash ?? "",
-          type:      "deposit",
-          status:    "confirmed",
-          timestamp: Date.now(),
-          amount:    value ? formatEther(value) : undefined,
+      try {
+        logs.forEach((log) => {
+          const { value } = log.args as { value?: bigint };
+          addTx({
+            hash:      log.transactionHash ?? `0x${Date.now().toString(16)}`,
+            type:      "deposit",
+            status:    "confirmed",
+            timestamp: Date.now(),
+            amount:    value ? formatEther(value) : undefined,
+          });
         });
-      });
-      qc.invalidateQueries({ queryKey: ["api"] });
+        qc.invalidateQueries({ queryKey: ["api"] });
+      } catch (err) {
+        console.error("[useVaultEvents] Deposited handler error:", err);
+      }
     },
   });
 
   useWatchContractEvent({
-    address: CONTRACTS.VAULT,
-    abi:     VeMEZOVaultABI,
+    address:   CONTRACTS.VAULT,
+    abi:       VeMEZOVaultABI,
     eventName: "Withdrawn",
-    enabled: deployed,
+    enabled:   deployed,
     onLogs(logs) {
-      logs.forEach((log) => {
-        const { value } = log.args as { value?: bigint };
-        addTx({
-          hash:      log.transactionHash ?? "",
-          type:      "withdraw",
-          status:    "confirmed",
-          timestamp: Date.now(),
-          amount:    value ? formatEther(value) : undefined,
+      try {
+        logs.forEach((log) => {
+          const { value } = log.args as { value?: bigint };
+          addTx({
+            hash:      log.transactionHash ?? `0x${Date.now().toString(16)}`,
+            type:      "withdraw",
+            status:    "confirmed",
+            timestamp: Date.now(),
+            amount:    value ? formatEther(value) : undefined,
+          });
         });
-      });
-      qc.invalidateQueries({ queryKey: ["api"] });
+        qc.invalidateQueries({ queryKey: ["api"] });
+      } catch (err) {
+        console.error("[useVaultEvents] Withdrawn handler error:", err);
+      }
     },
   });
 
   useWatchContractEvent({
-    address: CONTRACTS.VAULT,
-    abi:     VeMEZOVaultABI,
+    address:   CONTRACTS.VAULT,
+    abi:       VeMEZOVaultABI,
     eventName: "Compounded",
-    enabled: deployed,
+    enabled:   deployed,
     onLogs(logs) {
-      logs.forEach((log) => {
-        const { amountCompounded } = log.args as { amountCompounded?: bigint };
-        addTx({
-          hash:      log.transactionHash ?? "",
-          type:      "compound",
-          status:    "confirmed",
-          timestamp: Date.now(),
-          amount:    amountCompounded ? formatEther(amountCompounded) : undefined,
+      try {
+        logs.forEach((log) => {
+          const { amountCompounded } = log.args as { amountCompounded?: bigint };
+          addTx({
+            hash:      log.transactionHash ?? `0x${Date.now().toString(16)}`,
+            type:      "compound",
+            status:    "confirmed",
+            timestamp: Date.now(),
+            amount:    amountCompounded ? formatEther(amountCompounded) : undefined,
+          });
         });
-      });
-      qc.invalidateQueries({ queryKey: ["api"] });
+        qc.invalidateQueries({ queryKey: ["api"] });
+      } catch (err) {
+        console.error("[useVaultEvents] Compounded handler error:", err);
+      }
     },
   });
 }

@@ -8,24 +8,44 @@ import {
   fetchKeeperStatus,
 } from "@/lib/api/client";
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Safely convert a string/number to a BigInt, returning 0n on failure. */
+function safeBigInt(value: unknown): bigint {
+  if (value === null || value === undefined || value === "") return 0n;
+  try {
+    return BigInt(String(value));
+  } catch {
+    return 0n;
+  }
+}
+
+/** Format a string/number that represents a uint256 (18 decimals) as a JS number. */
+function formatWei(value: unknown): number {
+  return Number(formatUnits(safeBigInt(value), 18));
+}
+
+// ── Hooks ─────────────────────────────────────────────────────────────────────
+
 /** Vault-level metrics from the Express API (backed by Goldsky or mock). */
 export function useVaultAPIStats() {
   return useQuery({
     queryKey: ["api", "vault-stats"],
     queryFn:  fetchVaultStats,
     staleTime: 30_000,
+    retry: 2,
     select: (res) => {
-      const v = res.data.vault;
+      const v = res.data?.vault;
       if (!v) return null;
       return {
-        tvl:             Number(formatUnits(BigInt(v.totalUnderlying), 18)),
-        totalShares:     Number(formatUnits(BigInt(v.totalShares), 18)),
-        performanceFee:  v.performanceFee / 100,
-        totalDeposits:   v.totalDeposits,
-        totalCompounded: Number(formatUnits(BigInt(v.totalCompounded), 18)),
-        lastCompoundTime: Number(v.lastCompoundTime),
-        dailyMetrics:    res.data.dailyMetrics,
-        source:          res.source,
+        tvl:              formatWei(v.totalUnderlying),
+        totalShares:      formatWei(v.totalShares),
+        performanceFee:   typeof v.performanceFee === "number" ? v.performanceFee / 100 : 10,
+        totalDeposits:    Number(v.totalDeposits ?? 0),
+        totalCompounded:  formatWei(v.totalCompounded),
+        lastCompoundTime: Number(v.lastCompoundTime ?? 0),
+        dailyMetrics:     res.data.dailyMetrics ?? [],
+        source:           res.source ?? "api",
       };
     },
   });
@@ -37,13 +57,14 @@ export function useVaultAPIHistory(days = 30) {
     queryKey: ["api", "vault-history", days],
     queryFn:  () => fetchVaultHistory(days),
     staleTime: 60_000,
+    retry: 2,
     select: (res) =>
-      res.data.dailyMetrics.map((m) => ({
-        date:         m.date,
-        tvl:          Number(formatUnits(BigInt(m.tvl), 18)),
-        dailyRewards: Number(formatUnits(BigInt(m.dailyRewards), 18)),
-        dailyFees:    Number(formatUnits(BigInt(m.dailyFees), 18)),
-        totalUsers:   m.totalUsers ?? 0,
+      (res.data?.dailyMetrics ?? []).map((m) => ({
+        date:         Number(m.date),
+        tvl:          formatWei(m.tvl),
+        dailyRewards: formatWei(m.dailyRewards),
+        dailyFees:    formatWei(m.dailyFees),
+        totalUsers:   Number(m.totalUsers ?? 0),
       })),
   });
 }
@@ -55,16 +76,17 @@ export function useUserAPIPosition(address?: string) {
     queryFn:  () => fetchUserPosition(address!),
     enabled:  !!address,
     staleTime: 15_000,
+    retry: 1,
     select: (res) => {
-      const u = res.data.user;
+      const u = res.data?.user;
       if (!u) return null;
       return {
-        shareBalance:    Number(formatUnits(BigInt(u.shareBalance), 18)),
-        underlyingValue: Number(formatUnits(BigInt(u.underlyingValue), 18)),
-        tokenIds:        u.tokenIds,
-        deposits:        u.deposits,
-        withdrawals:     u.withdrawals,
-        source:          res.source,
+        shareBalance:    formatWei(u.shareBalance),
+        underlyingValue: formatWei(u.underlyingValue),
+        tokenIds:        Array.isArray(u.tokenIds) ? u.tokenIds : [],
+        deposits:        Array.isArray(u.deposits)    ? u.deposits    : [],
+        withdrawals:     Array.isArray(u.withdrawals) ? u.withdrawals : [],
+        source:          res.source ?? "api",
       };
     },
   });
@@ -77,7 +99,8 @@ export function useVaultActivityFeed() {
     queryFn:  fetchVaultActivity,
     staleTime: 15_000,
     refetchInterval: 30_000,
-    select: (res) => res.data.activity,
+    retry: 2,
+    select: (res) => res.data?.activity ?? [],
   });
 }
 
@@ -87,6 +110,7 @@ export function useKeeperStatus() {
     queryKey: ["api", "keeper-status"],
     queryFn:  fetchKeeperStatus,
     staleTime: 60_000,
+    retry: 2,
     select: (res) => res.data,
   });
 }

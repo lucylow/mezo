@@ -1,4 +1,4 @@
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useWriteContract } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CONTRACTS, VeMEZOVaultABI, VeMEZOABI } from "@/lib/contracts";
@@ -8,41 +8,46 @@ function shortenHash(hash: string) {
   return `${hash.slice(0, 8)}…${hash.slice(-6)}`;
 }
 
+function extractMessage(err: unknown): string {
+  if (err instanceof Error) {
+    // wagmi wraps contract reverts in shortMessage
+    return (err as any).shortMessage ?? err.message;
+  }
+  return "Unknown error";
+}
+
 // ── Deposit ───────────────────────────────────────────────────────────────────
 
 export function useDeposit() {
-  const qc             = useQueryClient();
-  const addTx          = useTransactionStore((s) => s.addTransaction);
-  const updateTx       = useTransactionStore((s) => s.updateTransaction);
+  const qc    = useQueryClient();
+  const addTx = useTransactionStore((s) => s.addTransaction);
   const { writeContractAsync, isPending } = useWriteContract();
 
   const deposit = async (tokenId: bigint) => {
     const toastId = `deposit-${tokenId}`;
     try {
-      // Step 1: approve
       toast.loading("Step 1/2 — Approving NFT transfer…", { id: toastId });
       await writeContractAsync({
         address: CONTRACTS.VEMEZO,
-        abi: VeMEZOABI,
+        abi:     VeMEZOABI,
         functionName: "approve",
         args: [CONTRACTS.VAULT, tokenId],
       });
 
-      // Step 2: deposit
       toast.loading("Step 2/2 — Depositing NFT…", { id: toastId });
       const hash = await writeContractAsync({
         address: CONTRACTS.VAULT,
-        abi: VeMEZOVaultABI,
+        abi:     VeMEZOVaultABI,
         functionName: "deposit",
         args: [tokenId],
       });
 
       addTx({ hash, type: "deposit", status: "pending", timestamp: Date.now(), amount: tokenId.toString() });
       toast.loading(`Confirming… ${shortenHash(hash)}`, { id: toastId });
-
+      qc.invalidateQueries({ queryKey: ["api"] });
       return hash;
-    } catch (err: any) {
-      toast.error(err?.shortMessage ?? err?.message ?? "Deposit failed", { id: toastId });
+    } catch (err) {
+      toast.error(`Deposit failed: ${extractMessage(err)}`, { id: toastId });
       throw err;
     }
   };
@@ -50,29 +55,30 @@ export function useDeposit() {
   const depositBatch = async (tokenIds: bigint[]) => {
     const toastId = "deposit-batch";
     try {
-      toast.loading("Step 1/2 — Approving NFTs…", { id: toastId });
+      toast.loading(`Step 1/2 — Approving ${tokenIds.length} NFTs…`, { id: toastId });
       for (const tid of tokenIds) {
         await writeContractAsync({
           address: CONTRACTS.VEMEZO,
-          abi: VeMEZOABI,
+          abi:     VeMEZOABI,
           functionName: "approve",
           args: [CONTRACTS.VAULT, tid],
         });
       }
 
-      toast.loading("Step 2/2 — Depositing NFTs…", { id: toastId });
+      toast.loading("Step 2/2 — Depositing batch…", { id: toastId });
       const hash = await writeContractAsync({
         address: CONTRACTS.VAULT,
-        abi: VeMEZOVaultABI,
+        abi:     VeMEZOVaultABI,
         functionName: "depositBatch",
-        args: [tokenIds],
+        args:    [tokenIds],
       });
 
       addTx({ hash, type: "deposit", status: "pending", timestamp: Date.now() });
       toast.loading(`Confirming… ${shortenHash(hash)}`, { id: toastId });
+      qc.invalidateQueries({ queryKey: ["api"] });
       return hash;
-    } catch (err: any) {
-      toast.error(err?.shortMessage ?? err?.message ?? "Batch deposit failed", { id: toastId });
+    } catch (err) {
+      toast.error(`Batch deposit failed: ${extractMessage(err)}`, { id: toastId });
       throw err;
     }
   };
@@ -83,8 +89,8 @@ export function useDeposit() {
 // ── Withdraw ──────────────────────────────────────────────────────────────────
 
 export function useWithdraw() {
-  const qc       = useQueryClient();
-  const addTx    = useTransactionStore((s) => s.addTransaction);
+  const qc    = useQueryClient();
+  const addTx = useTransactionStore((s) => s.addTransaction);
   const { writeContractAsync, isPending } = useWriteContract();
 
   const withdraw = async (tokenId: bigint) => {
@@ -93,15 +99,16 @@ export function useWithdraw() {
       toast.loading("Withdrawing NFT…", { id: toastId });
       const hash = await writeContractAsync({
         address: CONTRACTS.VAULT,
-        abi: VeMEZOVaultABI,
+        abi:     VeMEZOVaultABI,
         functionName: "withdraw",
         args: [tokenId],
       });
       addTx({ hash, type: "withdraw", status: "pending", timestamp: Date.now(), amount: tokenId.toString() });
       toast.loading(`Confirming… ${shortenHash(hash)}`, { id: toastId });
+      qc.invalidateQueries({ queryKey: ["api"] });
       return hash;
-    } catch (err: any) {
-      toast.error(err?.shortMessage ?? err?.message ?? "Withdrawal failed", { id: toastId });
+    } catch (err) {
+      toast.error(`Withdrawal failed: ${extractMessage(err)}`, { id: toastId });
       throw err;
     }
   };
@@ -112,15 +119,16 @@ export function useWithdraw() {
       toast.loading("Withdrawing by shares…", { id: toastId });
       const hash = await writeContractAsync({
         address: CONTRACTS.VAULT,
-        abi: VeMEZOVaultABI,
+        abi:     VeMEZOVaultABI,
         functionName: "withdrawByShares",
         args: [shares],
       });
       addTx({ hash, type: "withdraw", status: "pending", timestamp: Date.now() });
       toast.loading(`Confirming… ${shortenHash(hash)}`, { id: toastId });
+      qc.invalidateQueries({ queryKey: ["api"] });
       return hash;
-    } catch (err: any) {
-      toast.error(err?.shortMessage ?? err?.message ?? "Withdrawal failed", { id: toastId });
+    } catch (err) {
+      toast.error(`Withdrawal failed: ${extractMessage(err)}`, { id: toastId });
       throw err;
     }
   };
@@ -131,6 +139,7 @@ export function useWithdraw() {
 // ── Compound ──────────────────────────────────────────────────────────────────
 
 export function useCompound() {
+  const qc    = useQueryClient();
   const addTx = useTransactionStore((s) => s.addTransaction);
   const { writeContractAsync, isPending } = useWriteContract();
 
@@ -140,14 +149,15 @@ export function useCompound() {
       toast.loading("Triggering compound…", { id: toastId });
       const hash = await writeContractAsync({
         address: CONTRACTS.VAULT,
-        abi: VeMEZOVaultABI,
+        abi:     VeMEZOVaultABI,
         functionName: "compoundAll",
       });
       addTx({ hash, type: "compound", status: "pending", timestamp: Date.now() });
       toast.loading(`Confirming… ${shortenHash(hash)}`, { id: toastId });
+      qc.invalidateQueries({ queryKey: ["api"] });
       return hash;
-    } catch (err: any) {
-      toast.error(err?.shortMessage ?? err?.message ?? "Compound failed", { id: toastId });
+    } catch (err) {
+      toast.error(`Compound failed: ${extractMessage(err)}`, { id: toastId });
       throw err;
     }
   };

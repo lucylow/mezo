@@ -6,13 +6,46 @@
 
 const BASE = import.meta.env.VITE_API_URL ?? "";
 
+class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly path: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function get<T>(path: string, params?: Record<string, string>): Promise<T> {
   const url = new URL(`${BASE}/api${path}`, window.location.href);
   if (params) {
     Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
   }
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`API ${path} → ${res.status} ${res.statusText}`);
+
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), {
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      throw new ApiError(0, path, `Request timed out: GET ${path}`);
+    }
+    throw new ApiError(0, path, `Network error: GET ${path} — ${(err as Error).message}`);
+  }
+
+  if (!res.ok) {
+    let message = `API ${path} → ${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      // ignore JSON parse errors on error bodies
+    }
+    throw new ApiError(res.status, path, message);
+  }
+
   return res.json() as Promise<T>;
 }
 
@@ -28,7 +61,7 @@ export interface VaultStatsData {
     totalDeposits: number;
     totalCompounded: string;
     totalFeesCollected: string;
-  };
+  } | null;
   dailyMetrics: Array<{
     date: number;
     tvl: string;
@@ -71,8 +104,20 @@ export interface UserPositionData {
   shareBalance: string;
   underlyingValue: string;
   tokenIds: string[];
-  deposits: Array<{ tokenId: string; value: string; shares: string; timestamp: string; transactionHash?: string }>;
-  withdrawals: Array<{ tokenId: string; value: string; shares: string; timestamp: string; transactionHash?: string }>;
+  deposits: Array<{
+    tokenId: string;
+    value: string;
+    shares: string;
+    timestamp: string;
+    transactionHash?: string;
+  }>;
+  withdrawals: Array<{
+    tokenId: string;
+    value: string;
+    shares: string;
+    timestamp: string;
+    transactionHash?: string;
+  }>;
 }
 
 export function fetchUserPosition(address: string) {
@@ -107,3 +152,5 @@ export function fetchKeeperStatus() {
     source: string;
   }>("/keeper/status");
 }
+
+export { ApiError };
