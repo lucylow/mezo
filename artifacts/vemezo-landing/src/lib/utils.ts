@@ -11,6 +11,16 @@ export function formatNumber(value: number, decimals = 2): string {
   return value.toFixed(decimals);
 }
 
+export function formatUSD(value: number, maximumFractionDigits = 1): string {
+  if (!Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: value >= 1_000_000 ? "compact" : "standard",
+    maximumFractionDigits,
+  }).format(value);
+}
+
 export function shortenAddress(address: string, chars = 4): string {
   if (address.length <= chars * 2 + 2) return address;
   return `${address.slice(0, chars + 2)}...${address.slice(-chars)}`;

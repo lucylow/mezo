@@ -49,8 +49,11 @@ const VAULT_ABI = [
   "function checkUpkeep(uint256 gasPrice) external view returns (bool canCompound)",
   "function getPendingRewards() external view returns (uint256)",
   "function getDepositedTokenCount() external view returns (uint256)",
+  "function performanceFee() external view returns (uint256)",
   "event Compounded(uint256 totalRewards, uint256 fee, uint256 amountCompounded)",
 ];
+
+const vaultIface = new ethers.Interface(VAULT_ABI);
 
 // ── Core logic ────────────────────────────────────────────────────────────────
 
@@ -91,14 +94,32 @@ async function compound(): Promise<void> {
     const receipt = await tx.wait();
     logger.info({ blockNumber: receipt.blockNumber, gasUsed: receipt.gasUsed.toString() }, "Confirmed");
 
-    const event = receipt.logs.find((l: any) => l.fragment?.name === "Compounded");
-    if (event) {
-      const [totalRewards, fee, amountCompounded] = event.args;
+    let parsedCompounded: { totalRewards: bigint; fee: bigint; amountCompounded: bigint } | null = null;
+    for (const log of receipt.logs) {
+      try {
+        const parsed = vaultIface.parseLog({ topics: log.topics as string[], data: log.data });
+        if (parsed?.name === "Compounded") {
+          const [totalRewards, fee, amountCompounded] = parsed.args as unknown as [
+            bigint,
+            bigint,
+            bigint,
+          ];
+          parsedCompounded = { totalRewards, fee, amountCompounded };
+          break;
+        }
+      } catch {
+        // not a vault event
+      }
+    }
+
+    if (parsedCompounded) {
+      const performanceFeeBps = await vault.performanceFee();
       logger.info(
         {
-          totalRewards:     ethers.formatEther(totalRewards),
-          fee:              ethers.formatEther(fee),
-          amountCompounded: ethers.formatEther(amountCompounded),
+          totalRewards:     ethers.formatEther(parsedCompounded.totalRewards),
+          fee:              ethers.formatEther(parsedCompounded.fee),
+          amountCompounded: ethers.formatEther(parsedCompounded.amountCompounded),
+          feePercent:       `${(Number(performanceFeeBps) / 100).toFixed(1)}%`,
         },
         "Compound event",
       );

@@ -16,15 +16,17 @@ export function useVaultContractStats() {
       { address: CONTRACTS.VAULT, abi: VeMEZOVaultABI, functionName: "getPendingRewards" },
       { address: CONTRACTS.VAULT, abi: VeMEZOVaultABI, functionName: "getDepositedTokenCount" },
       { address: CONTRACTS.VAULT, abi: VeMEZOVaultABI, functionName: "lastCompoundTime" },
+      { address: CONTRACTS.VAULT, abi: VeMEZOVaultABI, functionName: "totalFeesCollectedMusd" },
     ],
     query: { enabled: deployed },
   });
 
-  const totalUnderlying  = data?.[0]?.result as bigint | undefined;
-  const performanceFee   = data?.[1]?.result as bigint | undefined;
-  const pendingRewards   = data?.[2]?.result as bigint | undefined;
-  const tokenCount       = data?.[3]?.result as bigint | undefined;
-  const lastCompoundTime = data?.[4]?.result as bigint | undefined;
+  const totalUnderlying       = data?.[0]?.result as bigint | undefined;
+  const performanceFee        = data?.[1]?.result as bigint | undefined;
+  const pendingRewards        = data?.[2]?.result as bigint | undefined;
+  const tokenCount            = data?.[3]?.result as bigint | undefined;
+  const lastCompoundTime      = data?.[4]?.result as bigint | undefined;
+  const totalFeesCollectedMusd = data?.[5]?.result as bigint | undefined;
 
   return {
     deployed,
@@ -33,6 +35,9 @@ export function useVaultContractStats() {
     pendingRewards:   pendingRewards    ? Number(formatEther(pendingRewards))   : undefined,
     totalShares:      tokenCount        ? Number(tokenCount)                    : undefined,
     lastCompoundTime: lastCompoundTime  ? Number(lastCompoundTime)              : undefined,
+    totalFeesCollectedMusd: totalFeesCollectedMusd
+      ? Number(formatEther(totalFeesCollectedMusd))
+      : undefined,
     isLoading: deployed ? isLoading : false,
     refetch,
   };

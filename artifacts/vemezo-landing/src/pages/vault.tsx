@@ -22,6 +22,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } 
 import { Info, Lock, ArrowDownToLine, ArrowUpFromLine, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { pageTransition, staggerContainer, staggerItem, cardHoverProps } from "@/lib/animations";
+import { FeeDisplay } from "@/components/vault/FeeDisplay";
 
 const MOCK_AVAILABLE_NFTS = [
   { id: "4092", amount: 1200, unlockDate: "2026-01-01" },
@@ -308,6 +309,7 @@ export default function Vault() {
         </div>
 
         <div className="space-y-6">
+          <FeeDisplay />
           {/* Pool ownership donut */}
           <Card className="bg-black/40 backdrop-blur-sm border-white/10 rounded-2xl">
             <CardHeader>

@@ -43,6 +43,7 @@ export function useVaultAPIStats() {
         performanceFee:   typeof v.performanceFee === "number" ? v.performanceFee / 100 : 10,
         totalDeposits:    Number(v.totalDeposits ?? 0),
         totalCompounded:  formatWei(v.totalCompounded),
+        totalFeesCollected: formatWei(v.totalFeesCollected),
         lastCompoundTime: Number(v.lastCompoundTime ?? 0),
         dailyMetrics:     res.data.dailyMetrics ?? [],
         source:           res.source ?? "api",

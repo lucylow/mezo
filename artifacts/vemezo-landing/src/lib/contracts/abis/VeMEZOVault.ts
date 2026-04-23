@@ -60,6 +60,34 @@ export const VeMEZOVaultABI = [
     inputs: [{ name: "gasPrice", type: "uint256" }],
     outputs: [{ name: "canCompound", type: "bool" }],
   },
+  {
+    name: "totalFeesCollectedMusd",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "tigrisRouter",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    name: "autoStakeMUSD",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    name: "musdSavingsVault",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
   // vaultToken share info
   {
     name: "vaultToken",
@@ -136,6 +164,23 @@ export const VeMEZOVaultABI = [
       { name: "totalRewards",    type: "uint256", indexed: false },
       { name: "fee",             type: "uint256", indexed: false },
       { name: "amountCompounded",type: "uint256", indexed: false },
+    ],
+  },
+  {
+    name: "FeeCollected",
+    type: "event",
+    inputs: [
+      { name: "mezoAmount", type: "uint256", indexed: false },
+      { name: "musdAmount", type: "uint256", indexed: false },
+      { name: "treasury",   type: "address", indexed: false },
+    ],
+  },
+  {
+    name: "TreasuryStaked",
+    type: "event",
+    inputs: [
+      { name: "musdAmount",     type: "uint256", indexed: false },
+      { name: "sharesReceived", type: "uint256", indexed: false },
     ],
   },
 ] as const;

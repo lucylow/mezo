@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Trophy, TrendingUp, Users, Crown, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import { cn, formatNumber } from "@/lib/utils";
+import { ReferralWidget } from "@/components/referral/ReferralWidget";
 
 interface LeaderboardEntry {
   rank: number;
@@ -111,7 +112,16 @@ export default function Leaderboard() {
         </CardHeader>
         <CardContent>
           {current.data.length === 0 ? (
-            <p className="text-muted-foreground text-center py-12">Referral program coming soon…</p>
+            tab === "refs" ? (
+              <div className="space-y-4 py-2">
+                <ReferralWidget />
+                <p className="text-xs text-muted-foreground text-center">
+                  Referral volume ranks will appear here when the subgraph indexes referral events.
+                </p>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-center py-12">No data for this view.</p>
+            )
           ) : (
             <div>
               {/* Header */}

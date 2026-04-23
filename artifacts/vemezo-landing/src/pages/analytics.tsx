@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrendingUp, Users, DollarSign, Activity, Lock, Zap } from "lucide-react";
 import { formatNumber } from "@/lib/utils";
+import { BusinessMetrics } from "@/components/dashboard/BusinessMetrics";
 import { cn } from "@/lib/utils";
 import {
   Area, AreaChart, Bar, BarChart, Line, LineChart,
@@ -73,6 +74,8 @@ export default function Analytics() {
           ))}
         </div>
       </div>
+
+      <BusinessMetrics />
 
       {/* Key metrics */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
