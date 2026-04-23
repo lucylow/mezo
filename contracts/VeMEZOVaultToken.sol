@@ -6,25 +6,39 @@ import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "./interfaces/IERC4626.sol";
 
 /**
  * @title VeMEZOVaultToken
- * @notice ERC-4626-style vault share token (vveMEZO) minted/burned by the AutoCompounder vault.
- *         Tracks total underlying MEZO so share price auto-compounds with each epoch.
+ * @notice ERC-20 vault share token (vveMEZO) with ERC-4626 compliance.
+ *
+ * Minted when a user deposits a veMEZO NFT into VeMEZOAutoCompounder and
+ * burned when they withdraw.  Share price increases each time the keeper
+ * compounds rewards because `_totalAssets` grows while supply stays fixed.
+ *
+ * ERC-4626 deposit/withdraw entry points revert with a helpful message —
+ * all actual minting/burning must go through the vault contract, which
+ * enforces the NFT ownership check.
  */
-contract VeMEZOVaultToken is ERC20, ERC20Burnable, Ownable2Step, ReentrancyGuard {
+contract VeMEZOVaultToken is ERC20, ERC20Burnable, Ownable2Step, ReentrancyGuard, IERC4626 {
+
+    // ── Immutables ────────────────────────────────────────────────────────────
+    /// @notice The VeMEZOAutoCompounder vault that controls this token.
     address public immutable vault;
-    address public immutable asset;
+
+    /// @inheritdoc IERC4626
+    address public immutable override asset;
+
+    // ── State ─────────────────────────────────────────────────────────────────
     uint256 private _totalAssets;
 
-    event Deposit(address indexed caller, address indexed owner, uint256 assets, uint256 shares);
-    event Withdraw(address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares);
-
+    // ── Modifiers ─────────────────────────────────────────────────────────────
     modifier onlyVault() {
         require(msg.sender == vault, "VeMEZOVaultToken: caller is not vault");
         _;
     }
 
+    // ── Constructor ───────────────────────────────────────────────────────────
     constructor(
         string memory _name,
         string memory _symbol,
@@ -37,45 +51,79 @@ contract VeMEZOVaultToken is ERC20, ERC20Burnable, Ownable2Step, ReentrancyGuard
         asset = _asset;
     }
 
-    function totalAssets() public view returns (uint256) {
+    // ── ERC-4626: view ────────────────────────────────────────────────────────
+
+    /// @inheritdoc IERC4626
+    function totalAssets() public view override returns (uint256) {
         return _totalAssets;
     }
 
-    function convertToShares(uint256 assets) public view returns (uint256) {
+    /// @inheritdoc IERC4626
+    function convertToShares(uint256 assets) public view override returns (uint256) {
         uint256 supply = totalSupply();
         return supply == 0 ? assets : (assets * supply) / _totalAssets;
     }
 
-    function convertToAssets(uint256 shares) public view returns (uint256) {
+    /// @inheritdoc IERC4626
+    function convertToAssets(uint256 shares) public view override returns (uint256) {
         uint256 supply = totalSupply();
         return supply == 0 ? shares : (shares * _totalAssets) / supply;
     }
 
-    function maxWithdraw(address owner) public view returns (uint256) {
+    /// @inheritdoc IERC4626
+    function maxDeposit(address) public pure override returns (uint256) { return type(uint256).max; }
+
+    /// @inheritdoc IERC4626
+    function maxMint(address) public pure override returns (uint256) { return type(uint256).max; }
+
+    /// @inheritdoc IERC4626
+    function maxWithdraw(address owner) public view override returns (uint256) {
         return convertToAssets(balanceOf(owner));
     }
 
-    function maxRedeem(address owner) public view returns (uint256) {
+    /// @inheritdoc IERC4626
+    function maxRedeem(address owner) public view override returns (uint256) {
         return balanceOf(owner);
     }
 
-    function previewDeposit(uint256 assets) public view returns (uint256) {
+    /// @inheritdoc IERC4626
+    function previewDeposit(uint256 assets) public view override returns (uint256) {
         return convertToShares(assets);
     }
 
-    function previewRedeem(uint256 shares) public view returns (uint256) {
+    /// @inheritdoc IERC4626
+    function previewMint(uint256 shares) public view override returns (uint256) {
         return convertToAssets(shares);
     }
 
+    /// @inheritdoc IERC4626
+    function previewWithdraw(uint256 assets) public view override returns (uint256) {
+        return convertToShares(assets);
+    }
+
+    /// @inheritdoc IERC4626
+    function previewRedeem(uint256 shares) public view override returns (uint256) {
+        return convertToAssets(shares);
+    }
+
+    // ── ERC-4626: mutative (vault-only wrappers) ──────────────────────────────
+
+    /**
+     * @dev Mint vault shares for `to` when `assets` worth of underlying is deposited.
+     *      Called exclusively by VeMEZOAutoCompounder.
+     */
     function mintShares(address to, uint256 assets) external onlyVault nonReentrant returns (uint256 shares) {
         shares = convertToShares(assets);
         require(shares > 0, "VeMEZOVaultToken: zero shares");
         _mint(to, shares);
         _totalAssets += assets;
         emit Deposit(msg.sender, to, assets, shares);
-        return shares;
     }
 
+    /**
+     * @dev Burn `shares` from `from` and return the equivalent asset amount.
+     *      Called exclusively by VeMEZOAutoCompounder.
+     */
     function burnShares(address from, uint256 shares) external onlyVault nonReentrant returns (uint256 assets) {
         assets = convertToAssets(shares);
         require(assets > 0, "VeMEZOVaultToken: zero assets");
@@ -83,13 +131,43 @@ contract VeMEZOVaultToken is ERC20, ERC20Burnable, Ownable2Step, ReentrancyGuard
         _burn(from, shares);
         _totalAssets -= assets;
         emit Withdraw(msg.sender, from, from, assets, shares);
-        return assets;
     }
 
+    /**
+     * @dev Update total assets after a compound run.
+     *      Called exclusively by VeMEZOAutoCompounder.
+     */
     function updateTotalAssets(uint256 newTotalAssets) external onlyVault {
         _totalAssets = newTotalAssets;
     }
 
+    // ── ERC-4626: standard entry points (intentionally disabled) ─────────────
+    // All deposits/withdrawals must go through the vault, which enforces NFT
+    // ownership.  These stubs satisfy the interface while blocking direct calls.
+
+    /// @inheritdoc IERC4626
+    function deposit(uint256, address) external pure override returns (uint256) {
+        revert("Use vault.deposit(tokenId)");
+    }
+
+    /// @inheritdoc IERC4626
+    function mint(uint256, address) external pure override returns (uint256) {
+        revert("Use vault.deposit(tokenId)");
+    }
+
+    /// @inheritdoc IERC4626
+    function withdraw(uint256, address, address) external pure override returns (uint256) {
+        revert("Use vault.withdraw(tokenId)");
+    }
+
+    /// @inheritdoc IERC4626
+    function redeem(uint256, address, address) external pure override returns (uint256) {
+        revert("Use vault.withdraw(tokenId)");
+    }
+
+    // ── Admin ─────────────────────────────────────────────────────────────────
+
+    /// @notice Emergency override of total assets (owner-only, for recovery).
     function emergencyUpdateTotalAssets(uint256 newTotalAssets) external onlyOwner {
         _totalAssets = newTotalAssets;
     }
