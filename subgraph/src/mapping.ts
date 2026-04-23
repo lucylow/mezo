@@ -3,11 +3,39 @@ import {
   Deposited,
   Withdrawn,
   Compounded,
+  FeeDistributed,
+  FeeRewardClaimed,
 } from "../generated/VeMEZOAutoCompounder/VeMEZOAutoCompounder";
-import { Vault, User, Deposit, Withdrawal, Compound, DailyMetric } from "../generated/schema";
+import {
+  ProposalCreated,
+  VoteCast,
+  ProposalExecuted,
+  ProposalCanceled,
+  ProposalQueued,
+} from "../generated/VaultGovernor/VaultGovernor";
+import {
+  CallScheduled,
+  CallExecuted,
+  Cancelled,
+} from "../generated/VaultTimelockController/VaultTimelockController";
+import {
+  Vault,
+  User,
+  Deposit,
+  Withdrawal,
+  Compound,
+  FeeDistribution,
+  UserRewardClaim,
+  DailyMetric,
+  GovernanceProposal,
+  GovernanceVote,
+  TimelockOperation,
+} from "../generated/schema";
 
 const VAULT_ID = "vemezo-auto-compounder";
 const SECONDS_PER_DAY = 86400;
+
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 function getOrCreateVault(): Vault {
   let vault = Vault.load(VAULT_ID);
@@ -16,6 +44,7 @@ function getOrCreateVault(): Vault {
     vault.totalUnderlying = BigInt.zero();
     vault.totalShares = BigInt.zero();
     vault.performanceFee = 1000;
+    vault.feeDistributionRate = 5000;
     vault.lastCompoundTime = BigInt.zero();
     vault.totalDeposits = 0;
     vault.totalCompounded = BigInt.zero();
@@ -35,6 +64,7 @@ function getOrCreateUser(address: Bytes): User {
     user.shareBalance = BigInt.zero();
     user.underlyingValue = BigInt.zero();
     user.tokenIds = [];
+    user.totalRewardsClaimed = BigInt.zero();
     user.createdAt = BigInt.zero();
     user.updatedAt = BigInt.zero();
   }
@@ -53,9 +83,13 @@ function getOrCreateDailyMetric(timestamp: BigInt): DailyMetric {
     metric.totalUsers = 0;
     metric.dailyRewards = BigInt.zero();
     metric.dailyFees = BigInt.zero();
+    metric.dailyFeesToHolders = BigInt.zero();
+    metric.dailyFeesToTreasury = BigInt.zero();
   }
   return metric;
 }
+
+// ── Vault handlers ────────────────────────────────────────────────────────
 
 export function handleDeposited(event: Deposited): void {
   let vault = getOrCreateVault();
@@ -159,4 +193,156 @@ export function handleCompounded(event: Compounded): void {
   metric.save();
 
   vault.save();
+}
+
+export function handleFeeDistributed(event: FeeDistributed): void {
+  let feeDist = new FeeDistribution(
+    event.transaction.hash.toHexString() + "-" + event.logIndex.toString()
+  );
+  feeDist.totalFee = event.params.totalFee;
+  feeDist.toHolders = event.params.toHolders;
+  feeDist.toTreasury = event.params.toTreasury;
+  feeDist.transactionHash = event.transaction.hash;
+  feeDist.blockNumber = event.block.number;
+  feeDist.timestamp = event.block.timestamp;
+  feeDist.save();
+
+  let metric = getOrCreateDailyMetric(event.block.timestamp);
+  metric.dailyFeesToHolders = metric.dailyFeesToHolders.plus(event.params.toHolders);
+  metric.dailyFeesToTreasury = metric.dailyFeesToTreasury.plus(event.params.toTreasury);
+  metric.save();
+}
+
+export function handleFeeRewardClaimed(event: FeeRewardClaimed): void {
+  let user = getOrCreateUser(event.params.user);
+  user.totalRewardsClaimed = user.totalRewardsClaimed.plus(event.params.amount);
+  user.updatedAt = event.block.timestamp;
+  user.save();
+
+  let claim = new UserRewardClaim(
+    event.transaction.hash.toHexString() + "-" + event.logIndex.toString()
+  );
+  claim.user = user.id;
+  claim.amount = event.params.amount;
+  claim.transactionHash = event.transaction.hash;
+  claim.blockNumber = event.block.number;
+  claim.timestamp = event.block.timestamp;
+  claim.save();
+}
+
+// ── Governor handlers ─────────────────────────────────────────────────────
+
+export function handleProposalCreated(event: ProposalCreated): void {
+  let proposal = new GovernanceProposal(event.params.proposalId.toString());
+  proposal.proposalId = event.params.proposalId;
+  proposal.proposer = event.params.proposer;
+  proposal.description = event.params.description;
+
+  let targets: Bytes[] = [];
+  for (let i = 0; i < event.params.targets.length; i++) {
+    targets.push(event.params.targets[i]);
+  }
+  proposal.targets = targets;
+
+  let calldatas: Bytes[] = [];
+  for (let i = 0; i < event.params.calldatas.length; i++) {
+    calldatas.push(event.params.calldatas[i]);
+  }
+  proposal.calldatas = calldatas;
+
+  proposal.startBlock = event.params.voteStart;
+  proposal.endBlock = event.params.voteEnd;
+  proposal.status = "PENDING";
+  proposal.forVotes = BigInt.zero();
+  proposal.againstVotes = BigInt.zero();
+  proposal.abstainVotes = BigInt.zero();
+  proposal.executed = false;
+  proposal.createdAt = event.block.timestamp;
+  proposal.updatedAt = event.block.timestamp;
+  proposal.save();
+}
+
+export function handleVoteCast(event: VoteCast): void {
+  let proposal = GovernanceProposal.load(event.params.proposalId.toString());
+  if (!proposal) return;
+
+  if (event.params.support == 0) {
+    proposal.againstVotes = proposal.againstVotes.plus(event.params.weight);
+  } else if (event.params.support == 1) {
+    proposal.forVotes = proposal.forVotes.plus(event.params.weight);
+  } else {
+    proposal.abstainVotes = proposal.abstainVotes.plus(event.params.weight);
+  }
+  proposal.status = "ACTIVE";
+  proposal.updatedAt = event.block.timestamp;
+  proposal.save();
+
+  let vote = new GovernanceVote(
+    event.transaction.hash.toHexString() + "-" + event.logIndex.toString()
+  );
+  vote.proposal = proposal.id;
+  vote.voter = event.params.voter;
+  vote.support = event.params.support;
+  vote.weight = event.params.weight;
+  vote.reason = event.params.reason;
+  vote.transactionHash = event.transaction.hash;
+  vote.blockNumber = event.block.number;
+  vote.timestamp = event.block.timestamp;
+  vote.save();
+}
+
+export function handleProposalExecuted(event: ProposalExecuted): void {
+  let proposal = GovernanceProposal.load(event.params.proposalId.toString());
+  if (!proposal) return;
+  proposal.status = "EXECUTED";
+  proposal.executed = true;
+  proposal.updatedAt = event.block.timestamp;
+  proposal.save();
+}
+
+export function handleProposalCanceled(event: ProposalCanceled): void {
+  let proposal = GovernanceProposal.load(event.params.proposalId.toString());
+  if (!proposal) return;
+  proposal.status = "CANCELED";
+  proposal.updatedAt = event.block.timestamp;
+  proposal.save();
+}
+
+export function handleProposalQueued(event: ProposalQueued): void {
+  let proposal = GovernanceProposal.load(event.params.proposalId.toString());
+  if (!proposal) return;
+  proposal.status = "QUEUED";
+  proposal.updatedAt = event.block.timestamp;
+  proposal.save();
+}
+
+// ── Timelock handlers ─────────────────────────────────────────────────────
+
+export function handleCallScheduled(event: CallScheduled): void {
+  let op = new TimelockOperation(event.params.id.toHexString());
+  op.operationId = event.params.id;
+  op.target = event.params.target;
+  op.value = event.params.value;
+  op.data = event.params.data;
+  op.predecessor = event.params.predecessor;
+  op.delay = event.params.delay;
+  op.status = "SCHEDULED";
+  op.scheduledAt = event.block.timestamp;
+  op.executedAt = null;
+  op.save();
+}
+
+export function handleCallExecuted(event: CallExecuted): void {
+  let op = TimelockOperation.load(event.params.id.toHexString());
+  if (!op) return;
+  op.status = "EXECUTED";
+  op.executedAt = event.block.timestamp;
+  op.save();
+}
+
+export function handleCancelled(event: Cancelled): void {
+  let op = TimelockOperation.load(event.params.id.toHexString());
+  if (!op) return;
+  op.status = "CANCELLED";
+  op.save();
 }

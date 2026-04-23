@@ -18,11 +18,13 @@ const config: HardhatUserConfig = {
       url: process.env.MEZO_RPC_URL || "https://rpc.test.mezo.org",
       chainId: 31611,
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      gasPrice: "auto",
     },
     mezoMainnet: {
       url: "https://rpc.mezo.org",
       chainId: 31612,
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      gasPrice: "auto",
     },
   },
   etherscan: {
