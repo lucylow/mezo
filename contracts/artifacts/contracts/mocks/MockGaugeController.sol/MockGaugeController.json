@@ -1,0 +1,257 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "MockGaugeController",
+  "sourceName": "contracts/mocks/MockGaugeController.sol",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_rewardToken",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
+        }
+      ],
+      "name": "SafeERC20FailedOperation",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "gauge",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "totalWeight",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "rewardRate",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "periodFinish",
+          "type": "uint256"
+        }
+      ],
+      "name": "addGauge",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "tokenId",
+          "type": "uint256"
+        }
+      ],
+      "name": "claimRewards",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "tokenId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "claimRewardsForGauge",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "gaugeVotes",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "gauge",
+          "type": "address"
+        }
+      ],
+      "name": "gauges",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "totalWeight",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "rewardRate",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "periodFinish",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "getActiveGauges",
+      "outputs": [
+        {
+          "internalType": "address[]",
+          "name": "",
+          "type": "address[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "tokenId",
+          "type": "uint256"
+        }
+      ],
+      "name": "pendingRewards",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "pendingRewardsMap",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "rewardToken",
+      "outputs": [
+        {
+          "internalType": "contract IERC20",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "tokenId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "setPendingRewards",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "tokenId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "gauge",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "vote",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x608034606f57601f61056d38819003918201601f19168301916001600160401b03831184841017607357808492602094604052833981010312606f57516001600160a01b03811690819003606f575f80546001600160a01b0319169190911790556040516104e590816100888239f35b5f80fd5b634e487b7160e01b5f52604160045260245ffdfe60806040526004361015610011575f80fd5b5f3560e01c80630962ef79146103d6578063157d2081146103af5780634de8737c146103675780634ef0052b146102875780637dcb2abf146100bd5780638545437614610255578063b9a09fd514610206578063cffd31dd14610116578063de88cd0a146100e7578063ef7eb436146100bd5763f7c618c114610092575f80fd5b346100b9575f3660031901126100b9575f546040516001600160a01b039091168152602090f35b5f80fd5b346100b95760203660031901126100b9576004355f526001602052602060405f2054604051908152f35b346100b95760403660031901126100b9576101006103f4565b50602061010e600435610420565b604051908152f35b346100b9575f3660031901126100b9576040518060206004549182815201809160045f527f8a35acfbc15ff81a39ae7d344fd709f28e8600b4aa8c65c6b64bfe7fe36bd19b905f5b8181106101e757505050829003601f01601f1916820167ffffffffffffffff8111838210176101d35760408181526020808352845190830181905291928392918301915f5b8181106101b1575050500390f35b82516001600160a01b03168452859450602093840193909201916001016101a3565b634e487b7160e01b5f52604160045260245ffd5b82546001600160a01b031684526020909301926001928301920161015e565b346100b95760203660031901126100b9576001600160a01b0361022761040a565b165f526003602052606060405f20805490600260018201549101549060405192835260208301526040820152f35b346100b95760203660031901126100b9576004355f526002602052602060018060a01b0360405f205416604051908152f35b346100b95760803660031901126100b9576102a061040a565b6040516060810181811067ffffffffffffffff8211176101d35760405260243581526002602082019260443584526040830190606435825260018060a01b031693845f52600360205260405f209351845551600184015551910155600454680100000000000000008110156101d3576001810180600455811015610353577f8a35acfbc15ff81a39ae7d344fd709f28e8600b4aa8c65c6b64bfe7fe36bd19b0180546001600160a01b0319169091179055005b634e487b7160e01b5f52603260045260245ffd5b346100b95760603660031901126100b9576103806103f4565b6004355f90815260026020526040902080546001600160a01b0319166001600160a01b03909216919091179055005b346100b95760403660031901126100b9576004355f52600160205260243560405f20555f80f35b346100b95760203660031901126100b957602061010e600435610420565b602435906001600160a01b03821682036100b957565b600435906001600160a01b03821682036100b957565b5f9081526001602052604081208054919055908161043a57565b60018060a01b035f541660405163a9059cbb60e01b5f52336004528360245260205f60448180865af19060015f511482161561048e575b6040521561047c5750565b635274afe760e01b5f5260045260245ffd5b9060018115166104a657823b15153d15161690610471565b503d5f823e3d90fdfea26469706673582212204bc559e4ec74c24ab4e66edd79064bdf4e5a6f9b0fc0c535bc0ece7832acdbe364736f6c634300081a0033",
+  "deployedBytecode": "0x60806040526004361015610011575f80fd5b5f3560e01c80630962ef79146103d6578063157d2081146103af5780634de8737c146103675780634ef0052b146102875780637dcb2abf146100bd5780638545437614610255578063b9a09fd514610206578063cffd31dd14610116578063de88cd0a146100e7578063ef7eb436146100bd5763f7c618c114610092575f80fd5b346100b9575f3660031901126100b9575f546040516001600160a01b039091168152602090f35b5f80fd5b346100b95760203660031901126100b9576004355f526001602052602060405f2054604051908152f35b346100b95760403660031901126100b9576101006103f4565b50602061010e600435610420565b604051908152f35b346100b9575f3660031901126100b9576040518060206004549182815201809160045f527f8a35acfbc15ff81a39ae7d344fd709f28e8600b4aa8c65c6b64bfe7fe36bd19b905f5b8181106101e757505050829003601f01601f1916820167ffffffffffffffff8111838210176101d35760408181526020808352845190830181905291928392918301915f5b8181106101b1575050500390f35b82516001600160a01b03168452859450602093840193909201916001016101a3565b634e487b7160e01b5f52604160045260245ffd5b82546001600160a01b031684526020909301926001928301920161015e565b346100b95760203660031901126100b9576001600160a01b0361022761040a565b165f526003602052606060405f20805490600260018201549101549060405192835260208301526040820152f35b346100b95760203660031901126100b9576004355f526002602052602060018060a01b0360405f205416604051908152f35b346100b95760803660031901126100b9576102a061040a565b6040516060810181811067ffffffffffffffff8211176101d35760405260243581526002602082019260443584526040830190606435825260018060a01b031693845f52600360205260405f209351845551600184015551910155600454680100000000000000008110156101d3576001810180600455811015610353577f8a35acfbc15ff81a39ae7d344fd709f28e8600b4aa8c65c6b64bfe7fe36bd19b0180546001600160a01b0319169091179055005b634e487b7160e01b5f52603260045260245ffd5b346100b95760603660031901126100b9576103806103f4565b6004355f90815260026020526040902080546001600160a01b0319166001600160a01b03909216919091179055005b346100b95760403660031901126100b9576004355f52600160205260243560405f20555f80f35b346100b95760203660031901126100b957602061010e600435610420565b602435906001600160a01b03821682036100b957565b600435906001600160a01b03821682036100b957565b5f9081526001602052604081208054919055908161043a57565b60018060a01b035f541660405163a9059cbb60e01b5f52336004528360245260205f60448180865af19060015f511482161561048e575b6040521561047c5750565b635274afe760e01b5f5260045260245ffd5b9060018115166104a657823b15153d15161690610471565b503d5f823e3d90fdfea26469706673582212204bc559e4ec74c24ab4e66edd79064bdf4e5a6f9b0fc0c535bc0ece7832acdbe364736f6c634300081a0033",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}

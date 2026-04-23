@@ -5,6 +5,7 @@ export * as access from "./access";
 export * as automation from "./automation";
 export * as governance from "./governance";
 export * as interfaces from "./interfaces";
+export * as mocks from "./mocks";
 export * as modules from "./modules";
 export { VeMEZOAutoCompounder__factory } from "./VeMEZOAutoCompounder__factory";
 export { VeMEZOVaultToken__factory } from "./VeMEZOVaultToken__factory";

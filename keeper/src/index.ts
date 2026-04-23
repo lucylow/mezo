@@ -7,25 +7,31 @@
  *   • An OpenZeppelin Defender Autotask (see defender-autotask.js)
  *
  * Environment variables (set in .env):
- *   MEZO_RPC_URL         – Mezo JSON-RPC endpoint
- *   VAULT_ADDRESS        – Deployed VeMEZOAutoCompounder address
- *   KEEPER_PRIVATE_KEY   – EOA private key (keep this safe!)
- *   MAX_GAS_PRICE        – Max gas price in wei (default: 100 gwei)
- *   DISCORD_WEBHOOK_URL  – Optional: success notifications
- *   DISCORD_ALERT_URL    – Optional: error alerts
+ *   MEZO_RPC_URL                 – Mezo JSON-RPC endpoint
+ *   VAULT_ADDRESS                – Deployed VeMEZOAutoCompounder address
+ *   KEEPER_PRIVATE_KEY           – EOA private key (keep this safe!)
+ *   MAX_GAS_PRICE                – Max gas price in wei (default: 100 gwei)
+ *   DISCORD_WEBHOOK_URL          – Optional: success notifications
+ *   DISCORD_ALERT_URL            – Optional: error alerts (falls back to DISCORD_WEBHOOK_URL)
+ *   KEEPER_VERBOSE_NOTIFICATIONS – Set "true" to also notify on skipped rounds
+ *   KEEPER_MARGIN_BPS            – Reward/gasCost safety margin in bps (default: 1100 = 110%)
  */
 
 import { ethers } from "ethers";
 import cron from "node-cron";
 import winston from "winston";
 import "dotenv/config";
+import { checkProfitability, formatProfitabilityResult } from "./profitability";
+import { notifyCompoundSuccess, notifyError, notifySkipped } from "./discord";
+import { deployTreasury } from "./treasury-manager";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const RPC_URL         = process.env.MEZO_RPC_URL        ?? "https://rpc.test.mezo.org";
-const VAULT_ADDRESS   = process.env.VAULT_ADDRESS        ?? "";
-const KEEPER_KEY      = process.env.KEEPER_PRIVATE_KEY   ?? "";
-const MAX_GAS_PRICE   = BigInt(process.env.MAX_GAS_PRICE ?? String(100n * 10n ** 9n)); // 100 gwei
+const RPC_URL       = process.env.MEZO_RPC_URL        ?? "https://rpc.test.mezo.org";
+const VAULT_ADDRESS = process.env.VAULT_ADDRESS        ?? "";
+const KEEPER_KEY    = process.env.KEEPER_PRIVATE_KEY   ?? "";
+const MAX_GAS_PRICE = BigInt(process.env.MAX_GAS_PRICE ?? String(100n * 10n ** 9n)); // 100 gwei
+const MARGIN_BPS    = BigInt(process.env.KEEPER_MARGIN_BPS ?? "1100");               // 110%
 
 // ── Logger ────────────────────────────────────────────────────────────────────
 
@@ -46,10 +52,9 @@ const logger = winston.createLogger({
 
 const VAULT_ABI = [
   "function compoundAll() external returns (uint256 totalRewards, uint256 totalFee, uint256 totalCompounded)",
-  "function checkUpkeep(uint256 gasPrice) external view returns (bool canCompound)",
-  "function getPendingRewards() external view returns (uint256)",
-  "function getDepositedTokenCount() external view returns (uint256)",
-  "function performanceFee() external view returns (uint256)",
+  "function getPendingRewards()          external view returns (uint256)",
+  "function getDepositedTokenCount()     external view returns (uint256)",
+  "function performanceFee()             external view returns (uint256)",
   "event Compounded(uint256 totalRewards, uint256 fee, uint256 amountCompounded)",
 ];
 
@@ -58,7 +63,7 @@ const vaultIface = new ethers.Interface(VAULT_ABI);
 // ── Core logic ────────────────────────────────────────────────────────────────
 
 async function compound(): Promise<void> {
-  logger.info("Starting compounding check...");
+  logger.info("Starting compounding check…");
 
   if (!VAULT_ADDRESS) { logger.error("VAULT_ADDRESS not set"); return; }
   if (!KEEPER_KEY)    { logger.error("KEEPER_PRIVATE_KEY not set"); return; }
@@ -68,89 +73,70 @@ async function compound(): Promise<void> {
   const vault    = new ethers.Contract(VAULT_ADDRESS, VAULT_ABI, wallet);
 
   try {
-    const feeData = await provider.getFeeData();
-    const gasPrice = feeData.gasPrice ?? ethers.parseUnits("10", "gwei");
+    // ── Profitability check ─────────────────────────────────────────────────
+    const prof = await checkProfitability(vault, provider, MAX_GAS_PRICE, MARGIN_BPS);
+    logger.info(formatProfitabilityResult(prof));
 
-    if (gasPrice > MAX_GAS_PRICE) {
-      logger.warn({ gasPrice: gasPrice.toString() }, "Gas price too high – skipping");
+    if (prof.gasPrice > MAX_GAS_PRICE) {
+      const msg = `Gas price ${ethers.formatUnits(prof.gasPrice, "gwei")} gwei exceeds max ${ethers.formatUnits(MAX_GAS_PRICE, "gwei")} gwei`;
+      logger.warn(msg);
+      await notifySkipped(msg, prof);
       return;
     }
 
-    const canCompound = await vault.checkUpkeep(gasPrice);
-    if (!canCompound) {
-      const pending    = await vault.getPendingRewards();
-      const tokenCount = await vault.getDepositedTokenCount();
-      logger.info(
-        { pending: ethers.formatEther(pending), tokenCount: tokenCount.toString() },
-        "Not profitable – skipping",
-      );
+    if (!prof.canCompound) {
+      const msg = `Not profitable — pending ${ethers.formatEther(prof.pendingRewards)} MEZO < gas cost ${ethers.formatEther(prof.gasCost)} BTC`;
+      logger.info(msg);
+      await notifySkipped(msg, prof);
       return;
     }
 
+    // ── Execute ─────────────────────────────────────────────────────────────
     logger.info("Executing compoundAll()…");
-    const tx      = await vault.compoundAll({ gasPrice });
+    const tx      = await vault.compoundAll({ gasPrice: prof.gasPrice });
     logger.info({ txHash: tx.hash }, "Transaction sent");
 
     const receipt = await tx.wait();
     logger.info({ blockNumber: receipt.blockNumber, gasUsed: receipt.gasUsed.toString() }, "Confirmed");
 
-    let parsedCompounded: { totalRewards: bigint; fee: bigint; amountCompounded: bigint } | null = null;
+    // Parse the Compounded event from the receipt
+    let totalRewards    = 0n;
+    let fee             = 0n;
+    let amountCompounded = 0n;
+
     for (const log of receipt.logs) {
       try {
         const parsed = vaultIface.parseLog({ topics: log.topics as string[], data: log.data });
         if (parsed?.name === "Compounded") {
-          const [totalRewards, fee, amountCompounded] = parsed.args as unknown as [
-            bigint,
-            bigint,
-            bigint,
-          ];
-          parsedCompounded = { totalRewards, fee, amountCompounded };
+          [totalRewards, fee, amountCompounded] = parsed.args as unknown as [bigint, bigint, bigint];
           break;
         }
-      } catch {
-        // not a vault event
-      }
+      } catch { /* not a vault event */ }
     }
 
-    if (parsedCompounded) {
-      const performanceFeeBps = await vault.performanceFee();
-      logger.info(
-        {
-          totalRewards:     ethers.formatEther(parsedCompounded.totalRewards),
-          fee:              ethers.formatEther(parsedCompounded.fee),
-          amountCompounded: ethers.formatEther(parsedCompounded.amountCompounded),
-          feePercent:       `${(Number(performanceFeeBps) / 100).toFixed(1)}%`,
-        },
-        "Compound event",
-      );
-    }
+    const performanceFeeBps = await vault.performanceFee();
+    logger.info({
+      totalRewards:     ethers.formatEther(totalRewards),
+      fee:              ethers.formatEther(fee),
+      amountCompounded: ethers.formatEther(amountCompounded),
+      feePercent:       `${(Number(performanceFeeBps) / 100).toFixed(1)}%`,
+    }, "Compound complete");
 
-    await notify(
-      `✅ **veMEZO Compounded**\nTx: \`${tx.hash}\`\nBlock: ${receipt.blockNumber}`,
-    );
+    await notifyCompoundSuccess({
+      txHash: tx.hash,
+      blockNumber: receipt.blockNumber,
+      totalRewards,
+      fee,
+      amountCompounded,
+      profitability: prof,
+    });
+
+    // Run treasury deployment opportunistically after each compound
+    await deployTreasury().catch((e: Error) => logger.warn({ err: e.message }, "Treasury deploy skipped"));
+
   } catch (err: any) {
     logger.error({ err: err.message }, "Compounding failed");
-    await notify(`🚨 **Keeper Alert**\n${err.message}`, true);
-  }
-}
-
-// ── Discord notifications ─────────────────────────────────────────────────────
-
-async function notify(content: string, isAlert = false): Promise<void> {
-  const url = isAlert
-    ? (process.env.DISCORD_ALERT_URL ?? process.env.DISCORD_WEBHOOK_URL)
-    : process.env.DISCORD_WEBHOOK_URL;
-
-  if (!url) return;
-
-  try {
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
-    });
-  } catch {
-    logger.warn("Discord notification failed");
+    await notifyError(err.message, { vault: VAULT_ADDRESS, rpc: RPC_URL });
   }
 }
 
