@@ -26,17 +26,23 @@ import type {
 export interface VeMEZOAutoCompounderInterface extends Interface {
   getFunction(
     nameOrSignature:
+      | "MAX_FEE_DISTRIBUTION_RATE"
       | "MAX_LOCK_DURATION"
       | "MAX_PERFORMANCE_FEE"
+      | "MIN_PERFORMANCE_FEE"
       | "acceptOwnership"
       | "autoMaxLock"
       | "autoStakeMUSD"
       | "calculateTotalUnderlying"
       | "checkUpkeep"
+      | "claimFeeRewards"
       | "compoundAll"
       | "deposit"
       | "depositBatch"
       | "emergencyWithdraw"
+      | "feeDistributionRate"
+      | "feePerShare"
+      | "feePool"
       | "gaugeController"
       | "getDepositedTokenCount"
       | "getDepositedTokenIds"
@@ -54,11 +60,13 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
       | "owner"
       | "pause"
       | "paused"
+      | "pendingFeeRewards"
       | "pendingOwner"
       | "performanceFee"
       | "renounceOwnership"
       | "setAutoMaxLock"
       | "setAutoStakeMUSD"
+      | "setFeeDistributionRate"
       | "setMinDepositValue"
       | "setPerformanceFee"
       | "setTreasury"
@@ -69,6 +77,7 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
       | "treasury"
       | "unpause"
       | "updateKeeper"
+      | "userRewardDebt"
       | "vaultToken"
       | "veMEZO"
       | "withdraw"
@@ -83,12 +92,15 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
       | "Deposited"
       | "EmergencyWithdrawal"
       | "FeeCollected"
+      | "FeeDistributed"
+      | "FeeDistributionRateUpdated"
       | "KeeperUpdated"
       | "MinDepositValueUpdated"
       | "OwnershipTransferStarted"
       | "OwnershipTransferred"
       | "Paused"
       | "PerformanceFeeUpdated"
+      | "RewardsClaimed"
       | "TreasuryStaked"
       | "TreasuryUpdated"
       | "Unpaused"
@@ -96,11 +108,19 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
   ): EventFragment;
 
   encodeFunctionData(
+    functionFragment: "MAX_FEE_DISTRIBUTION_RATE",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "MAX_LOCK_DURATION",
     values?: undefined
   ): string;
   encodeFunctionData(
     functionFragment: "MAX_PERFORMANCE_FEE",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "MIN_PERFORMANCE_FEE",
     values?: undefined
   ): string;
   encodeFunctionData(
@@ -124,6 +144,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     values: [BigNumberish]
   ): string;
   encodeFunctionData(
+    functionFragment: "claimFeeRewards",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "compoundAll",
     values?: undefined
   ): string;
@@ -139,6 +163,15 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     functionFragment: "emergencyWithdraw",
     values: [BigNumberish, AddressLike]
   ): string;
+  encodeFunctionData(
+    functionFragment: "feeDistributionRate",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "feePerShare",
+    values?: undefined
+  ): string;
+  encodeFunctionData(functionFragment: "feePool", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "gaugeController",
     values?: undefined
@@ -190,6 +223,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
   encodeFunctionData(functionFragment: "pause", values?: undefined): string;
   encodeFunctionData(functionFragment: "paused", values?: undefined): string;
   encodeFunctionData(
+    functionFragment: "pendingFeeRewards",
+    values: [AddressLike]
+  ): string;
+  encodeFunctionData(
     functionFragment: "pendingOwner",
     values?: undefined
   ): string;
@@ -208,6 +245,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
   encodeFunctionData(
     functionFragment: "setAutoStakeMUSD",
     values: [boolean, AddressLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "setFeeDistributionRate",
+    values: [BigNumberish]
   ): string;
   encodeFunctionData(
     functionFragment: "setMinDepositValue",
@@ -244,6 +285,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     values: [AddressLike]
   ): string;
   encodeFunctionData(
+    functionFragment: "userRewardDebt",
+    values: [AddressLike]
+  ): string;
+  encodeFunctionData(
     functionFragment: "vaultToken",
     values?: undefined
   ): string;
@@ -258,11 +303,19 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
   ): string;
 
   decodeFunctionResult(
+    functionFragment: "MAX_FEE_DISTRIBUTION_RATE",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "MAX_LOCK_DURATION",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
     functionFragment: "MAX_PERFORMANCE_FEE",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "MIN_PERFORMANCE_FEE",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -286,6 +339,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "claimFeeRewards",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "compoundAll",
     data: BytesLike
   ): Result;
@@ -298,6 +355,15 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     functionFragment: "emergencyWithdraw",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(
+    functionFragment: "feeDistributionRate",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "feePerShare",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(functionFragment: "feePool", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "gaugeController",
     data: BytesLike
@@ -346,6 +412,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
   decodeFunctionResult(functionFragment: "pause", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "paused", data: BytesLike): Result;
   decodeFunctionResult(
+    functionFragment: "pendingFeeRewards",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "pendingOwner",
     data: BytesLike
   ): Result;
@@ -363,6 +433,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
   ): Result;
   decodeFunctionResult(
     functionFragment: "setAutoStakeMUSD",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "setFeeDistributionRate",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -397,6 +471,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
   decodeFunctionResult(functionFragment: "unpause", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "updateKeeper",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "userRewardDebt",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "vaultToken", data: BytesLike): Result;
@@ -515,6 +593,41 @@ export namespace FeeCollectedEvent {
   export type LogDescription = TypedLogDescription<Event>;
 }
 
+export namespace FeeDistributedEvent {
+  export type InputTuple = [
+    totalFee: BigNumberish,
+    toHolders: BigNumberish,
+    toTreasury: BigNumberish
+  ];
+  export type OutputTuple = [
+    totalFee: bigint,
+    toHolders: bigint,
+    toTreasury: bigint
+  ];
+  export interface OutputObject {
+    totalFee: bigint;
+    toHolders: bigint;
+    toTreasury: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace FeeDistributionRateUpdatedEvent {
+  export type InputTuple = [oldRate: BigNumberish, newRate: BigNumberish];
+  export type OutputTuple = [oldRate: bigint, newRate: bigint];
+  export interface OutputObject {
+    oldRate: bigint;
+    newRate: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
 export namespace KeeperUpdatedEvent {
   export type InputTuple = [oldKeeper: AddressLike, newKeeper: AddressLike];
   export type OutputTuple = [oldKeeper: string, newKeeper: string];
@@ -585,6 +698,19 @@ export namespace PerformanceFeeUpdatedEvent {
   export interface OutputObject {
     oldFee: bigint;
     newFee: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace RewardsClaimedEvent {
+  export type InputTuple = [user: AddressLike, amount: BigNumberish];
+  export type OutputTuple = [user: string, amount: bigint];
+  export interface OutputObject {
+    user: string;
+    amount: bigint;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -701,9 +827,13 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     event?: TCEvent
   ): Promise<this>;
 
+  MAX_FEE_DISTRIBUTION_RATE: TypedContractMethod<[], [bigint], "view">;
+
   MAX_LOCK_DURATION: TypedContractMethod<[], [bigint], "view">;
 
   MAX_PERFORMANCE_FEE: TypedContractMethod<[], [bigint], "view">;
+
+  MIN_PERFORMANCE_FEE: TypedContractMethod<[], [bigint], "view">;
 
   acceptOwnership: TypedContractMethod<[], [void], "nonpayable">;
 
@@ -714,6 +844,8 @@ export interface VeMEZOAutoCompounder extends BaseContract {
   calculateTotalUnderlying: TypedContractMethod<[], [bigint], "view">;
 
   checkUpkeep: TypedContractMethod<[gasPrice: BigNumberish], [boolean], "view">;
+
+  claimFeeRewards: TypedContractMethod<[], [void], "nonpayable">;
 
   compoundAll: TypedContractMethod<
     [],
@@ -740,6 +872,12 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     [void],
     "nonpayable"
   >;
+
+  feeDistributionRate: TypedContractMethod<[], [bigint], "view">;
+
+  feePerShare: TypedContractMethod<[], [bigint], "view">;
+
+  feePool: TypedContractMethod<[], [bigint], "view">;
 
   gaugeController: TypedContractMethod<[], [string], "view">;
 
@@ -779,6 +917,8 @@ export interface VeMEZOAutoCompounder extends BaseContract {
 
   paused: TypedContractMethod<[], [boolean], "view">;
 
+  pendingFeeRewards: TypedContractMethod<[user: AddressLike], [bigint], "view">;
+
   pendingOwner: TypedContractMethod<[], [string], "view">;
 
   performanceFee: TypedContractMethod<[], [bigint], "view">;
@@ -789,6 +929,12 @@ export interface VeMEZOAutoCompounder extends BaseContract {
 
   setAutoStakeMUSD: TypedContractMethod<
     [enabled: boolean, savingsVault: AddressLike],
+    [void],
+    "nonpayable"
+  >;
+
+  setFeeDistributionRate: TypedContractMethod<
+    [newRate: BigNumberish],
     [void],
     "nonpayable"
   >;
@@ -833,6 +979,8 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     "nonpayable"
   >;
 
+  userRewardDebt: TypedContractMethod<[arg0: AddressLike], [bigint], "view">;
+
   vaultToken: TypedContractMethod<[], [string], "view">;
 
   veMEZO: TypedContractMethod<[], [string], "view">;
@@ -854,10 +1002,16 @@ export interface VeMEZOAutoCompounder extends BaseContract {
   ): T;
 
   getFunction(
+    nameOrSignature: "MAX_FEE_DISTRIBUTION_RATE"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
     nameOrSignature: "MAX_LOCK_DURATION"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "MAX_PERFORMANCE_FEE"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "MIN_PERFORMANCE_FEE"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "acceptOwnership"
@@ -874,6 +1028,9 @@ export interface VeMEZOAutoCompounder extends BaseContract {
   getFunction(
     nameOrSignature: "checkUpkeep"
   ): TypedContractMethod<[gasPrice: BigNumberish], [boolean], "view">;
+  getFunction(
+    nameOrSignature: "claimFeeRewards"
+  ): TypedContractMethod<[], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "compoundAll"
   ): TypedContractMethod<
@@ -900,6 +1057,15 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     [void],
     "nonpayable"
   >;
+  getFunction(
+    nameOrSignature: "feeDistributionRate"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "feePerShare"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "feePool"
+  ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "gaugeController"
   ): TypedContractMethod<[], [string], "view">;
@@ -956,6 +1122,9 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     nameOrSignature: "paused"
   ): TypedContractMethod<[], [boolean], "view">;
   getFunction(
+    nameOrSignature: "pendingFeeRewards"
+  ): TypedContractMethod<[user: AddressLike], [bigint], "view">;
+  getFunction(
     nameOrSignature: "pendingOwner"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
@@ -974,6 +1143,9 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     [void],
     "nonpayable"
   >;
+  getFunction(
+    nameOrSignature: "setFeeDistributionRate"
+  ): TypedContractMethod<[newRate: BigNumberish], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "setMinDepositValue"
   ): TypedContractMethod<[newMin: BigNumberish], [void], "nonpayable">;
@@ -1004,6 +1176,9 @@ export interface VeMEZOAutoCompounder extends BaseContract {
   getFunction(
     nameOrSignature: "updateKeeper"
   ): TypedContractMethod<[newKeeper: AddressLike], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "userRewardDebt"
+  ): TypedContractMethod<[arg0: AddressLike], [bigint], "view">;
   getFunction(
     nameOrSignature: "vaultToken"
   ): TypedContractMethod<[], [string], "view">;
@@ -1060,6 +1235,20 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     FeeCollectedEvent.OutputObject
   >;
   getEvent(
+    key: "FeeDistributed"
+  ): TypedContractEvent<
+    FeeDistributedEvent.InputTuple,
+    FeeDistributedEvent.OutputTuple,
+    FeeDistributedEvent.OutputObject
+  >;
+  getEvent(
+    key: "FeeDistributionRateUpdated"
+  ): TypedContractEvent<
+    FeeDistributionRateUpdatedEvent.InputTuple,
+    FeeDistributionRateUpdatedEvent.OutputTuple,
+    FeeDistributionRateUpdatedEvent.OutputObject
+  >;
+  getEvent(
     key: "KeeperUpdated"
   ): TypedContractEvent<
     KeeperUpdatedEvent.InputTuple,
@@ -1100,6 +1289,13 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     PerformanceFeeUpdatedEvent.InputTuple,
     PerformanceFeeUpdatedEvent.OutputTuple,
     PerformanceFeeUpdatedEvent.OutputObject
+  >;
+  getEvent(
+    key: "RewardsClaimed"
+  ): TypedContractEvent<
+    RewardsClaimedEvent.InputTuple,
+    RewardsClaimedEvent.OutputTuple,
+    RewardsClaimedEvent.OutputObject
   >;
   getEvent(
     key: "TreasuryStaked"
@@ -1197,6 +1393,28 @@ export interface VeMEZOAutoCompounder extends BaseContract {
       FeeCollectedEvent.OutputObject
     >;
 
+    "FeeDistributed(uint256,uint256,uint256)": TypedContractEvent<
+      FeeDistributedEvent.InputTuple,
+      FeeDistributedEvent.OutputTuple,
+      FeeDistributedEvent.OutputObject
+    >;
+    FeeDistributed: TypedContractEvent<
+      FeeDistributedEvent.InputTuple,
+      FeeDistributedEvent.OutputTuple,
+      FeeDistributedEvent.OutputObject
+    >;
+
+    "FeeDistributionRateUpdated(uint256,uint256)": TypedContractEvent<
+      FeeDistributionRateUpdatedEvent.InputTuple,
+      FeeDistributionRateUpdatedEvent.OutputTuple,
+      FeeDistributionRateUpdatedEvent.OutputObject
+    >;
+    FeeDistributionRateUpdated: TypedContractEvent<
+      FeeDistributionRateUpdatedEvent.InputTuple,
+      FeeDistributionRateUpdatedEvent.OutputTuple,
+      FeeDistributionRateUpdatedEvent.OutputObject
+    >;
+
     "KeeperUpdated(address,address)": TypedContractEvent<
       KeeperUpdatedEvent.InputTuple,
       KeeperUpdatedEvent.OutputTuple,
@@ -1261,6 +1479,17 @@ export interface VeMEZOAutoCompounder extends BaseContract {
       PerformanceFeeUpdatedEvent.InputTuple,
       PerformanceFeeUpdatedEvent.OutputTuple,
       PerformanceFeeUpdatedEvent.OutputObject
+    >;
+
+    "RewardsClaimed(address,uint256)": TypedContractEvent<
+      RewardsClaimedEvent.InputTuple,
+      RewardsClaimedEvent.OutputTuple,
+      RewardsClaimedEvent.OutputObject
+    >;
+    RewardsClaimed: TypedContractEvent<
+      RewardsClaimedEvent.InputTuple,
+      RewardsClaimedEvent.OutputTuple,
+      RewardsClaimedEvent.OutputObject
     >;
 
     "TreasuryStaked(uint256,uint256)": TypedContractEvent<

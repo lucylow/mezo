@@ -1,0 +1,1018 @@
+# Vibe Code Prompt: Decentralization Features for Auto‑Compounder Vault (lucylow/mezo)
+
+## 📋 Prompt Overview
+
+**Repository:** `lucylow/mezo`  
+**Branch:** `main` (or create feature branch `feat/decentralization`)  
+**Goal:** Implement progressive decentralization features for the Auto‑Compounder Vault, aligning with Mezo's four‑pillar decentralization strategy: Supernormal Foundation oversight, Proof‑of‑HODL consensus, tBTC bridging, and ve(3,3) tokenomics.
+
+**Context:** The vault currently operates with a single centralized keeper bot that triggers `compoundAll()`. This prompt adds decentralized keeper infrastructure, on‑chain governance for vault parameters, transparent fee distribution, and community ownership mechanisms—transforming the vault from a centralized utility into community‑owned infrastructure that accelerates Mezo's own decentralization roadmap.
+
+---
+
+## 1. Repository Context & Current State
+
+### 1.1. Repository Structure (Existing)
+```
+lucylow/mezo/
+├── contracts/
+│   ├── VeMEZOAutoCompounder.sol          # Main vault (centralized keeper)
+│   ├── VeMEZOVaultToken.sol              # ERC-4626 share token
+│   └── interfaces/
+│       ├── IVeMEZO.sol
+│       ├── IGaugeController.sol
+│       └── IMUSD.sol
+├── scripts/
+│   └── deploy.ts                         # Hardhat deploy script
+├── keeper/
+│   └── index.ts                          # Centralized keeper bot
+├── frontend/
+│   └── (Next.js app)
+├── subgraph/
+│   └── (Goldsky subgraph)
+└── hardhat.config.ts
+```
+
+### 1.2. Current Limitations (Centralization Vectors)
+| Component | Centralization Issue | Target Decentralization |
+|:---|:---|:---|
+| Keeper Bot | Single Node.js cron job | Multi‑keeper network (Gelato/Chainlink) |
+| Vault Parameters | `onlyOwner` admin control | Timelock + multi‑sig governance |
+| Fee Distribution | Treasury address (single) | Proportional to vveMEZO holders |
+| Emergency Pause | `onlyOwner` | Multi‑sig + timelock |
+| Upgradeability | None (immutable) | Governance‑controlled proxy pattern |
+| Performance Fee | Fixed 10% | Governable within bounds (5‑20%) |
+
+---
+
+## 2. Decentralization Feature Requirements
+
+### 2.1. Phase 1: Decentralized Keeper Network (Hackathon Demo → Production)
+
+**Goal:** Replace single keeper bot with decentralized automation network.
+
+**Implementation:** Integrate **Gelato Network** (or **Chainlink Automation**) to trigger `compoundAll()`.
+
+**Why Gelato/Chainlink?**
+- Gelato: Native support for Mezo testnet (EVM‑compatible)
+- Decentralized executor network prevents single point of failure
+- On‑chain task verification
+
+**Files to Create/Modify:**
+
+#### File: `contracts/automation/GelatoCompounder.sol`
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+import "@gelatonetwork/automate/contracts/integrations/AutomateTaskCreator.sol";
+import "../VeMEZOAutoCompounder.sol";
+
+/**
+ * @title GelatoCompounder
+ * @dev Gelato integration for decentralized compounding automation
+ * Implements IAutomateTaskCreator for Gelato compatibility
+ */
+contract GelatoCompounder is AutomateTaskCreator {
+    VeMEZOAutoCompounder public immutable vault;
+    
+    // Gelato task ID for tracking
+    bytes32 public taskId;
+    
+    // Minimum time between compounds (6 hours)
+    uint256 public constant MIN_INTERVAL = 6 hours;
+    uint256 public lastExecution;
+    
+    // Profitability threshold (basis points, 1000 = 10%)
+    uint256 public minProfitMargin = 1000;
+    
+    event TaskCreated(bytes32 indexed taskId);
+    event TaskCancelled(bytes32 indexed taskId);
+    event CompoundedViaGelato(uint256 rewards, uint256 fee, uint256 compounded);
+    
+    constructor(address _vault) AutomateTaskCreator() {
+        vault = VeMEZOAutoCompounder(_vault);
+    }
+    
+    /**
+     * @dev Gelato resolver: checks if compounding should execute
+     */
+    function checker()
+        external
+        view
+        returns (bool canExec, bytes memory execPayload)
+    {
+        // Time check
+        if (block.timestamp - lastExecution < MIN_INTERVAL) {
+            return (false, bytes(""));
+        }
+        
+        // Profitability check
+        uint256 gasPrice = tx.gasprice;
+        bool profitable = vault.checkUpkeep(gasPrice);
+        
+        if (!profitable) {
+            return (false, bytes(""));
+        }
+        
+        // Build execution payload
+        execPayload = abi.encodeWithSelector(this.executeCompound.selector);
+        return (true, execPayload);
+    }
+    
+    /**
+     * @dev Execution function called by Gelato
+     */
+    function executeCompound() external onlyDedicatedMsgSender {
+        lastExecution = block.timestamp;
+        
+        (uint256 rewards, uint256 fee, uint256 compounded) = vault.compoundAll();
+        
+        emit CompoundedViaGelato(rewards, fee, compounded);
+        
+        // Pay Gelato fee (optional - can use vault's fee share)
+        (uint256 feeDeduction, ) = _getFeeDetails();
+        if (feeDeduction > 0) {
+            _transfer(feeDeduction, dedicatedMsgSender);
+        }
+    }
+    
+    /**
+     * @dev Create Gelato automation task
+     */
+    function createTask() external returns (bytes32) {
+        require(taskId == bytes32(0), "Task already exists");
+        
+        bytes memory execData = abi.encodeWithSelector(this.executeCompound.selector);
+        
+        ModuleData memory moduleData = ModuleData({
+            modules: new Module[](2),
+            args: new bytes[](2)
+        });
+        
+        moduleData.modules[0] = Module.RESOLVER;
+        moduleData.modules[1] = Module.PROXY;
+        moduleData.args[0] = abi.encode(address(this), this.checker.selector);
+        moduleData.args[1] = bytes("");
+        
+        taskId = _createTask(address(this), execData, moduleData, address(0));
+        
+        emit TaskCreated(taskId);
+        return taskId;
+    }
+    
+    /**
+     * @dev Cancel Gelato task
+     */
+    function cancelTask() external {
+        require(taskId != bytes32(0), "No task exists");
+        _cancelTask(taskId);
+        emit TaskCancelled(taskId);
+        taskId = bytes32(0);
+    }
+    
+    /**
+     * @dev Set minimum profit margin
+     */
+    function setMinProfitMargin(uint256 _margin) external {
+        require(_margin <= 5000, "Max 50%");
+        minProfitMargin = _margin;
+    }
+}
+```
+
+#### File: `contracts/automation/ChainlinkCompounder.sol` (Alternative)
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+import "@chainlink/contracts/src/v0.8/automation/AutomationCompatible.sol";
+import "../VeMEZOAutoCompounder.sol";
+
+/**
+ * @title ChainlinkCompounder
+ * @dev Chainlink Automation integration for decentralized compounding
+ */
+contract ChainlinkCompounder is AutomationCompatible {
+    VeMEZOAutoCompounder public immutable vault;
+    uint256 public immutable interval;
+    uint256 public lastExecution;
+    
+    event CompoundedViaChainlink(uint256 rewards, uint256 fee, uint256 compounded);
+    
+    constructor(address _vault, uint256 _interval) {
+        vault = VeMEZOAutoCompounder(_vault);
+        interval = _interval;
+    }
+    
+    /**
+     * @dev Chainlink checkUpkeep
+     */
+    function checkUpkeep(
+        bytes calldata /* checkData */
+    )
+        external
+        view
+        override
+        returns (bool upkeepNeeded, bytes memory performData)
+    {
+        // Time check
+        if (block.timestamp - lastExecution < interval) {
+            return (false, bytes(""));
+        }
+        
+        // Profitability check
+        uint256 gasPrice = tx.gasprice;
+        bool profitable = vault.checkUpkeep(gasPrice);
+        
+        if (!profitable) {
+            return (false, bytes(""));
+        }
+        
+        performData = abi.encode(gasPrice);
+        return (true, performData);
+    }
+    
+    /**
+     * @dev Chainlink performUpkeep
+     */
+    function performUpkeep(bytes calldata /* performData */) external override {
+        lastExecution = block.timestamp;
+        
+        (uint256 rewards, uint256 fee, uint256 compounded) = vault.compoundAll();
+        
+        emit CompoundedViaChainlink(rewards, fee, compounded);
+    }
+}
+```
+
+---
+
+## 3. Phase 2: On‑Chain Governance for Vault Parameters
+
+### 3.1. Timelock Controller
+
+**Goal:** All parameter changes must go through timelock delay.
+
+#### File: `contracts/governance/VaultTimelockController.sol`
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+import "@openzeppelin/contracts/governance/TimelockController.sol";
+
+/**
+ * @title VaultTimelockController
+ * @dev Timelock for vault parameter changes
+ * Default delay: 2 days (can be adjusted by governance)
+ */
+contract VaultTimelockController is TimelockController {
+    constructor(
+        uint256 minDelay,
+        address[] memory proposers,
+        address[] memory executors,
+        address admin
+    ) TimelockController(minDelay, proposers, executors, admin) {}
+}
+```
+
+### 3.2. Governance Module for Vault
+
+**Goal:** Enable veMEZO holders (or vveMEZO holders) to vote on parameter changes.
+
+#### File: `contracts/governance/VaultGovernor.sol`
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+import "@openzeppelin/contracts/governance/Governor.sol";
+import "@openzeppelin/contracts/governance/extensions/GovernorSettings.sol";
+import "@openzeppelin/contracts/governance/extensions/GovernorCountingSimple.sol";
+import "@openzeppelin/contracts/governance/extensions/GovernorVotes.sol";
+import "@openzeppelin/contracts/governance/extensions/GovernorTimelockControl.sol";
+
+/**
+ * @title VaultGovernor
+ * @dev Governance for veMEZO Auto‑Compounder Vault
+ * Voting power: vveMEZO shares (ERC‑4626 vault token)
+ */
+contract VaultGovernor is
+    Governor,
+    GovernorSettings,
+    GovernorCountingSimple,
+    GovernorVotes,
+    GovernorTimelockControl
+{
+    constructor(
+        IVotes _token,
+        TimelockController _timelock,
+        uint256 _votingDelay,
+        uint256 _votingPeriod,
+        uint256 _proposalThreshold
+    )
+        Governor("VaultGovernor")
+        GovernorSettings(_votingDelay, _votingPeriod, _proposalThreshold)
+        GovernorVotes(_token)
+        GovernorTimelockControl(_timelock)
+    {}
+
+    function quorum(uint256 blockNumber) public pure override returns (uint256) {
+        return 100_000e18; // 100k vveMEZO minimum quorum
+    }
+
+    function votingDelay() public view override(Governor, GovernorSettings) returns (uint256) {
+        return super.votingDelay();
+    }
+
+    function votingPeriod() public view override(Governor, GovernorSettings) returns (uint256) {
+        return super.votingPeriod();
+    }
+
+    function proposalThreshold() public view override(Governor, GovernorSettings) returns (uint256) {
+        return super.proposalThreshold();
+    }
+
+    function state(uint256 proposalId)
+        public
+        view
+        override(Governor, GovernorTimelockControl)
+        returns (ProposalState)
+    {
+        return super.state(proposalId);
+    }
+
+    function propose(
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        string memory description
+    ) public override(Governor, Governor) returns (uint256) {
+        return super.propose(targets, values, calldatas, description);
+    }
+
+    function _execute(
+        uint256 proposalId,
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        bytes32 descriptionHash
+    ) internal override(Governor, GovernorTimelockControl) {
+        super._execute(proposalId, targets, values, calldatas, descriptionHash);
+    }
+
+    function _cancel(
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        bytes32 descriptionHash
+    ) internal override(Governor, GovernorTimelockControl) returns (uint256) {
+        return super._cancel(targets, values, calldatas, descriptionHash);
+    }
+
+    function _executor() internal view override(Governor, GovernorTimelockControl) returns (address) {
+        return super._executor();
+    }
+
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        override(Governor, GovernorTimelockControl)
+        returns (bool)
+    {
+        return super.supportsInterface(interfaceId);
+    }
+}
+```
+
+---
+
+## 4. Phase 3: Fee Distribution to vveMEZO Holders
+
+### 4.1. Modify Vault to Support Fee Sharing
+
+#### File: `contracts/VeMEZOAutoCompounder.sol` (Modifications)
+
+Add fee distribution logic:
+
+```solidity
+// Add to existing VeMEZOAutoCompounder.sol
+
+// New state variables
+uint256 public feeDistributionRate = 5000; // 50% of fees to vveMEZO holders (basis points)
+mapping(address => uint256) public pendingRewards;
+
+event FeeDistributed(uint256 totalFee, uint256 toHolders, uint256 toTreasury);
+event RewardsClaimed(address indexed user, uint256 amount);
+
+/**
+ * @dev Modified _collectFee to split between treasury and holders
+ */
+function _collectFee(uint256 feeAmount) internal returns (uint256 musdAmount) {
+    if (feeAmount == 0) return 0;
+    
+    // Convert to MUSD (existing logic)
+    musdAmount = _swapToMUSD(feeAmount);
+    
+    // Split fee
+    uint256 toHolders = (musdAmount * feeDistributionRate) / 10000;
+    uint256 toTreasury = musdAmount - toHolders;
+    
+    if (toHolders > 0) {
+        _distributeToHolders(toHolders);
+    }
+    
+    if (toTreasury > 0) {
+        musdToken.safeTransfer(treasury, toTreasury);
+    }
+    
+    emit FeeDistributed(musdAmount, toHolders, toTreasury);
+    return musdAmount;
+}
+
+/**
+ * @dev Distribute MUSD proportionally to vveMEZO holders
+ */
+function _distributeToHolders(uint256 amount) internal {
+    uint256 totalShares = vaultToken.totalSupply();
+    if (totalShares == 0) return;
+    
+    // Since we can't iterate all holders, we use a pull-based system
+    // Add to a global pool that users can claim from
+    feePool += amount;
+    lastDistributionBlock = block.number;
+    
+    // Update accrual parameters for proportional claiming
+    feePerShare = feePerShare + (amount * PRECISION) / totalShares;
+}
+
+/**
+ * @dev Claim accumulated fee rewards for msg.sender
+ */
+function claimFeeRewards() external nonReentrant {
+    uint256 userShares = vaultToken.balanceOf(msg.sender);
+    require(userShares > 0, "No shares");
+    
+    uint256 pending = _calculatePendingRewards(msg.sender);
+    require(pending > 0, "No pending rewards");
+    
+    // Reset user's reward debt
+    userRewardDebt[msg.sender] = (userShares * feePerShare) / PRECISION;
+    
+    musdToken.safeTransfer(msg.sender, pending);
+    
+    emit RewardsClaimed(msg.sender, pending);
+}
+
+function _calculatePendingRewards(address user) internal view returns (uint256) {
+    uint256 userShares = vaultToken.balanceOf(user);
+    uint256 accumulated = (userShares * feePerShare) / PRECISION;
+    uint256 debt = userRewardDebt[user];
+    return accumulated > debt ? accumulated - debt : 0;
+}
+```
+
+---
+
+## 5. Phase 4: Multi‑Signature Emergency Controls
+
+### 5.1. Multi‑Sig Wallet Integration
+
+**Goal:** Replace single `onlyOwner` emergency controls with multi‑sig.
+
+#### File: `contracts/access/VaultMultiSig.sol`
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+import "@openzeppelin/contracts/access/AccessControl.sol";
+
+/**
+ * @title VaultMultiSig
+ * @dev Multi‑signature access control for vault emergency functions
+ */
+contract VaultMultiSig is AccessControl {
+    bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");
+    bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
+    
+    // Required signatures for emergency actions
+    uint256 public requiredGuardians = 3;
+    uint256 public requiredEmergency = 5;
+    
+    // Pending emergency action
+    struct EmergencyAction {
+        address target;
+        bytes data;
+        uint256 timestamp;
+        mapping(address => bool) approvals;
+        uint256 approvalCount;
+        bool executed;
+    }
+    
+    mapping(bytes32 => EmergencyAction) public emergencyActions;
+    
+    event EmergencyActionProposed(bytes32 indexed actionId, address target);
+    event EmergencyActionApproved(bytes32 indexed actionId, address guardian);
+    event EmergencyActionExecuted(bytes32 indexed actionId);
+    
+    constructor(address[] memory guardians, address[] memory emergencySigners) {
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        
+        for (uint256 i = 0; i < guardians.length; i++) {
+            _grantRole(GUARDIAN_ROLE, guardians[i]);
+        }
+        for (uint256 i = 0; i < emergencySigners.length; i++) {
+            _grantRole(EMERGENCY_ROLE, emergencySigners[i]);
+        }
+    }
+    
+    /**
+     * @dev Propose an emergency action
+     */
+    function proposeEmergencyAction(
+        address target,
+        bytes calldata data
+    ) external onlyRole(GUARDIAN_ROLE) returns (bytes32 actionId) {
+        actionId = keccak256(abi.encodePacked(target, data, block.timestamp));
+        
+        EmergencyAction storage action = emergencyActions[actionId];
+        action.target = target;
+        action.data = data;
+        action.timestamp = block.timestamp;
+        
+        emit EmergencyActionProposed(actionId, target);
+    }
+    
+    /**
+     * @dev Approve a pending emergency action
+     */
+    function approveEmergencyAction(bytes32 actionId) external onlyRole(GUARDIAN_ROLE) {
+        EmergencyAction storage action = emergencyActions[actionId];
+        require(!action.executed, "Already executed");
+        require(!action.approvals[msg.sender], "Already approved");
+        
+        action.approvals[msg.sender] = true;
+        action.approvalCount++;
+        
+        emit EmergencyActionApproved(actionId, msg.sender);
+    }
+    
+    /**
+     * @dev Execute approved emergency action
+     */
+    function executeEmergencyAction(bytes32 actionId) external onlyRole(GUARDIAN_ROLE) {
+        EmergencyAction storage action = emergencyActions[actionId];
+        require(!action.executed, "Already executed");
+        require(action.approvalCount >= requiredGuardians, "Insufficient approvals");
+        require(block.timestamp <= action.timestamp + 24 hours, "Action expired");
+        
+        action.executed = true;
+        
+        (bool success, ) = action.target.call(action.data);
+        require(success, "Emergency action failed");
+        
+        emit EmergencyActionExecuted(actionId);
+    }
+}
+```
+
+---
+
+## 6. Phase 5: Transparent Subgraph Indexing
+
+### 6.1. Update Subgraph for Governance Events
+
+#### File: `subgraph/schema.graphql` (Additions)
+
+```graphql
+type GovernanceProposal @entity {
+  id: ID!
+  proposalId: BigInt!
+  proposer: Bytes!
+  description: String!
+  targets: [Bytes!]!
+  calldatas: [Bytes!]!
+  startBlock: BigInt!
+  endBlock: BigInt!
+  status: ProposalStatus!
+  forVotes: BigInt!
+  againstVotes: BigInt!
+  abstainVotes: BigInt!
+  executed: Boolean!
+  createdAt: BigInt!
+}
+
+enum ProposalStatus {
+  PENDING
+  ACTIVE
+  CANCELED
+  DEFEATED
+  SUCCEEDED
+  QUEUED
+  EXECUTED
+  EXPIRED
+}
+
+type FeeDistribution @entity {
+  id: ID!
+  totalFee: BigInt!
+  toHolders: BigInt!
+  toTreasury: BigInt!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type UserRewardClaim @entity {
+  id: ID!
+  user: Bytes!
+  amount: BigInt!
+  timestamp: BigInt!
+  transactionHash: Bytes!
+}
+```
+
+---
+
+## 7. Frontend Integration
+
+### 7.1. Governance Dashboard Component
+
+#### File: `frontend/components/governance/GovernanceDashboard.tsx`
+
+```tsx
+'use client';
+
+import { useAccount } from 'wagmi';
+import { useGovernance } from '@/hooks/useGovernance';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Progress } from '@/components/ui/Progress';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
+import { Vote, Clock, Users, CheckCircle2, XCircle } from 'lucide-react';
+import { formatNumber, shortenAddress } from '@/lib/utils';
+
+export function GovernanceDashboard() {
+  const { address } = useAccount();
+  const {
+    proposals,
+    userVotingPower,
+    userRewards,
+    createProposal,
+    castVote,
+    executeProposal,
+    claimRewards,
+  } = useGovernance();
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Vault Governance</h2>
+        <Button onClick={() => createProposal()}>Create Proposal</Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <Vote className="h-8 w-8 text-mezo-primary" />
+              <div>
+                <p className="text-sm text-mezo-muted">Your Voting Power</p>
+                <p className="text-2xl font-bold">{formatNumber(userVotingPower)} vveMEZO</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <Users className="h-8 w-8 text-mezo-secondary" />
+              <div>
+                <p className="text-sm text-mezo-muted">Active Proposals</p>
+                <p className="text-2xl font-bold">{proposals.filter(p => p.status === 'ACTIVE').length}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <Clock className="h-8 w-8 text-mezo-accent" />
+              <div>
+                <p className="text-sm text-mezo-muted">Pending Rewards</p>
+                <p className="text-2xl font-bold">{formatNumber(userRewards)} MUSD</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Tabs defaultValue="active">
+        <TabsList>
+          <TabsTrigger value="active">Active</TabsTrigger>
+          <TabsTrigger value="passed">Passed</TabsTrigger>
+          <TabsTrigger value="executed">Executed</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="active" className="mt-4 space-y-4">
+          {proposals.filter(p => p.status === 'ACTIVE').map(proposal => (
+            <ProposalCard
+              key={proposal.id}
+              proposal={proposal}
+              userVotingPower={userVotingPower}
+              onVote={castVote}
+            />
+          ))}
+        </TabsContent>
+      </Tabs>
+
+      {userRewards > 0 && (
+        <Card>
+          <CardContent className="py-4 flex items-center justify-between">
+            <div>
+              <p className="font-medium">Fee Rewards Available</p>
+              <p className="text-sm text-mezo-muted">Earned from protocol performance fees</p>
+            </div>
+            <Button onClick={claimRewards}>Claim {formatNumber(userRewards)} MUSD</Button>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function ProposalCard({ proposal, userVotingPower, onVote }) {
+  const totalVotes = proposal.forVotes + proposal.againstVotes;
+  const forPercentage = totalVotes > 0 ? (proposal.forVotes / totalVotes) * 100 : 0;
+  const timeLeft = proposal.endBlock - Math.floor(Date.now() / 1000);
+  
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Proposal #{proposal.proposalId}: {proposal.description}</CardTitle>
+        <p className="text-sm text-mezo-muted">
+          Proposed by {shortenAddress(proposal.proposer)}
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="mb-4">
+          <div className="flex justify-between text-sm mb-1">
+            <span>For: {formatNumber(proposal.forVotes)}</span>
+            <span>Against: {formatNumber(proposal.againstVotes)}</span>
+          </div>
+          <Progress value={forPercentage} />
+        </div>
+        
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-mezo-muted">
+            {timeLeft > 0 ? `${Math.ceil(timeLeft / 3600)} hours remaining` : 'Voting ended'}
+          </span>
+          
+          {proposal.status === 'ACTIVE' && userVotingPower > 0 && (
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => onVote(proposal.id, true)}>
+                <CheckCircle2 className="h-4 w-4 mr-1" /> Vote For
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => onVote(proposal.id, false)}>
+                <XCircle className="h-4 w-4 mr-1" /> Vote Against
+              </Button>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+## 8. Deployment Script
+
+### 8.1. Complete Deployment with Governance
+
+#### File: `scripts/deploy-full.ts`
+
+```typescript
+import { ethers } from "hardhat";
+
+async function main() {
+  const [deployer] = await ethers.getSigners();
+  console.log("Deploying full decentralized vault system...");
+
+  // 1. Deploy core vault (if not already deployed)
+  const VEMEZO_ADDRESS = "0x...";
+  const GAUGE_CONTROLLER = "0x...";
+  const MEZO_TOKEN = "0x...";
+  const MUSD_TOKEN = "0x...";
+
+  const VeMEZOAutoCompounder = await ethers.getContractFactory("VeMEZOAutoCompounder");
+  const vault = await VeMEZOAutoCompounder.deploy(
+    VEMEZO_ADDRESS,
+    GAUGE_CONTROLLER,
+    MEZO_TOKEN,
+    MUSD_TOKEN,
+    deployer.address
+  );
+  await vault.waitForDeployment();
+  console.log("Vault deployed to:", await vault.getAddress());
+
+  // 2. Deploy Timelock
+  const minDelay = 2 * 24 * 60 * 60; // 2 days
+  const proposers = [deployer.address];
+  const executors = [deployer.address];
+  
+  const Timelock = await ethers.getContractFactory("VaultTimelockController");
+  const timelock = await Timelock.deploy(minDelay, proposers, executors, deployer.address);
+  await timelock.waitForDeployment();
+  console.log("Timelock deployed to:", await timelock.getAddress());
+
+  // 3. Deploy Governor
+  const vaultTokenAddress = await vault.vaultToken();
+  const votingDelay = 1 * 24 * 60 * 60 / 12; // 1 day in blocks
+  const votingPeriod = 5 * 24 * 60 * 60 / 12; // 5 days
+  const proposalThreshold = ethers.parseEther("10000");
+  
+  const Governor = await ethers.getContractFactory("VaultGovernor");
+  const governor = await Governor.deploy(
+    vaultTokenAddress,
+    await timelock.getAddress(),
+    votingDelay,
+    votingPeriod,
+    proposalThreshold
+  );
+  await governor.waitForDeployment();
+  console.log("Governor deployed to:", await governor.getAddress());
+
+  // 4. Deploy Gelato Compounder
+  const GelatoCompounder = await ethers.getContractFactory("GelatoCompounder");
+  const gelatoCompounder = await GelatoCompounder.deploy(await vault.getAddress());
+  await gelatoCompounder.waitForDeployment();
+  console.log("GelatoCompounder deployed to:", await gelatoCompounder.getAddress());
+
+  // 5. Transfer vault ownership to Timelock
+  await vault.transferOwnership(await timelock.getAddress());
+  console.log("Vault ownership transferred to Timelock");
+
+  // 6. Set up roles
+  const PROPOSER_ROLE = await timelock.PROPOSER_ROLE();
+  const EXECUTOR_ROLE = await timelock.EXECUTOR_ROLE();
+  
+  await timelock.grantRole(PROPOSER_ROLE, await governor.getAddress());
+  await timelock.grantRole(EXECUTOR_ROLE, await governor.getAddress());
+  console.log("Governor granted proposer/executor roles");
+
+  console.log("\n=== Deployment Complete ===");
+  console.log("Vault:", await vault.getAddress());
+  console.log("Timelock:", await timelock.getAddress());
+  console.log("Governor:", await governor.getAddress());
+  console.log("GelatoCompounder:", await gelatoCompounder.getAddress());
+}
+
+main().catch(console.error);
+```
+
+---
+
+## 9. Testing Instructions
+
+### 9.1. Unit Tests for Governance
+
+#### File: `test/VaultGovernance.test.ts`
+
+```typescript
+import { expect } from "chai";
+import { ethers } from "hardhat";
+import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { time } from "@nomicfoundation/hardhat-network-helpers";
+
+describe("Vault Governance", function () {
+  async function deployFixture() {
+    const [owner, guardian1, guardian2, guardian3, user] = await ethers.getSigners();
+    
+    // Deploy core contracts (simplified)
+    const VeMEZOAutoCompounder = await ethers.getContractFactory("VeMEZOAutoCompounder");
+    const vault = await VeMEZOAutoCompounder.deploy(/* ... */);
+    
+    // Deploy Timelock
+    const Timelock = await ethers.getContractFactory("VaultTimelockController");
+    const timelock = await Timelock.deploy(2 * 86400, [owner.address], [owner.address], owner.address);
+    
+    // Deploy Governor
+    const Governor = await ethers.getContractFactory("VaultGovernor");
+    const vaultToken = await ethers.getContractAt("VeMEZOVaultToken", await vault.vaultToken());
+    const governor = await Governor.deploy(
+      await vaultToken.getAddress(),
+      await timelock.getAddress(),
+      100, 500, ethers.parseEther("1000")
+    );
+    
+    return { vault, timelock, governor, vaultToken, owner, guardian1, user };
+  }
+
+  it("should allow creating a proposal to change performance fee", async function () {
+    const { vault, governor, owner } = await loadFixture(deployFixture);
+    
+    // Transfer ownership to timelock first
+    await vault.transferOwnership(await governor.timelock());
+    
+    // Create proposal
+    const targets = [await vault.getAddress()];
+    const values = [0];
+    const calldatas = [
+      vault.interface.encodeFunctionData("setPerformanceFee", [500]) // 5%
+    ];
+    const description = "Reduce performance fee to 5%";
+    
+    await governor.propose(targets, values, calldatas, description);
+    
+    const proposalId = await governor.hashProposal(targets, values, calldatas, ethers.id(description));
+    const state = await governor.state(proposalId);
+    expect(state).to.equal(0); // Pending
+  });
+
+  it("should execute proposal after voting and timelock", async function () {
+    const { vault, governor, owner } = await loadFixture(deployFixture);
+    
+    await vault.transferOwnership(await governor.timelock());
+    
+    // Create proposal
+    const targets = [await vault.getAddress()];
+    const calldatas = [vault.interface.encodeFunctionData("setPerformanceFee", [500])];
+    
+    await governor.propose(targets, [0], calldatas, "Reduce fee");
+    const proposalId = await governor.hashProposal(targets, [0], calldatas, ethers.id("Reduce fee"));
+    
+    // Vote
+    await governor.castVote(proposalId, 1); // For
+    
+    // Advance blocks
+    await time.increase(5 * 86400);
+    
+    // Queue and execute
+    await governor.queue(targets, [0], calldatas, ethers.id("Reduce fee"));
+    await time.increase(2 * 86400 + 1);
+    await governor.execute(targets, [0], calldatas, ethers.id("Reduce fee"));
+    
+    expect(await vault.performanceFee()).to.equal(500);
+  });
+});
+```
+
+---
+
+## 10. Verification Steps
+
+### 10.1. Post‑Deployment Verification
+
+1. **Verify Timelock Delay:**
+   ```bash
+   npx hardhat verify --network mezoTestnet TIMELOCK_ADDRESS 172800 "[]" "[]" DEPLOYER_ADDRESS
+   ```
+
+2. **Verify Governor:**
+   ```bash
+   npx hardhat verify --network mezoTestnet GOVERNOR_ADDRESS \
+     VEMEZOVAULTTOKEN_ADDRESS TIMELOCK_ADDRESS 7200 36000 10000000000000000000000
+   ```
+
+3. **Verify Gelato Integration:**
+   - Create task via `gelatoCompounder.createTask()`
+   - Check Gelato dashboard for task creation
+   - Verify automated execution
+
+---
+
+## 11. Final Checklist
+
+- [ ] Deploy core vault with fee distribution logic
+- [ ] Deploy TimelockController with 2‑day delay
+- [ ] Deploy VaultGovernor with vveMEZO as voting token
+- [ ] Transfer vault ownership to Timelock
+- [ ] Grant PROPOSER_ROLE and EXECUTOR_ROLE to Governor
+- [ ] Deploy GelatoCompounder or ChainlinkCompounder
+- [ ] Create automation task on Gelato/Chainlink
+- [ ] Deploy updated subgraph with governance entities
+- [ ] Build frontend governance dashboard
+- [ ] Test full proposal lifecycle (create → vote → queue → execute)
+- [ ] Verify fee distribution to vveMEZO holders
+- [ ] Document all contract addresses for hackathon submission
+
+---
+
+## 12. Summary of Decentralization Achievements
+
+| Component | Before | After |
+|:---|:---|:---|
+| Keeper | Single Node.js bot | Decentralized Gelato/Chainlink network |
+| Parameter Changes | `onlyOwner` immediate | Timelock + governance vote |
+| Fee Distribution | 100% to treasury | 50% to vveMEZO holders (claimable) |
+| Emergency Pause | `onlyOwner` | Multi‑sig guardians (3/5) |
+| Upgradeability | Immutable | Governance‑controlled (future proxy) |
+| Transparency | Basic events | Full subgraph with governance tracking |
+
+This implementation transforms the Auto‑Compounder Vault from a centralized utility into **community‑owned infrastructure** that directly accelerates Mezo's own decentralization roadmap, satisfying the MEZO Utilization track mandate to "make MEZO tokens more productive across staking, governance, liquidity, infrastructure, and new utility models."
+

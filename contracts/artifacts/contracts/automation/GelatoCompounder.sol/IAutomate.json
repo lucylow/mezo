@@ -1,0 +1,88 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "IAutomate",
+  "sourceName": "contracts/automation/GelatoCompounder.sol",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "taskId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "cancelTask",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "execAddress",
+          "type": "address"
+        },
+        {
+          "internalType": "bytes",
+          "name": "execDataOrSelector",
+          "type": "bytes"
+        },
+        {
+          "components": [
+            {
+              "internalType": "enum IAutomate.Module[]",
+              "name": "modules",
+              "type": "uint8[]"
+            },
+            {
+              "internalType": "bytes[]",
+              "name": "args",
+              "type": "bytes[]"
+            }
+          ],
+          "internalType": "struct IAutomate.ModuleData",
+          "name": "moduleData",
+          "type": "tuple"
+        },
+        {
+          "internalType": "address",
+          "name": "feeToken",
+          "type": "address"
+        }
+      ],
+      "name": "createTask",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "taskId",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "getFeeDetails",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "fee",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "feeToken",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x",
+  "deployedBytecode": "0x",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}

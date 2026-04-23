@@ -3,6 +3,7 @@ type Vault @entity {
   totalUnderlying: BigInt!
   totalShares: BigInt!
   performanceFee: Int!
+  feeDistributionRate: Int!
   lastCompoundTime: BigInt!
   totalDeposits: Int!
   totalCompounded: BigInt!
@@ -18,7 +19,9 @@ type User @entity {
   underlyingValue: BigInt!
   deposits: [Deposit!]! @derivedFrom(field: "user")
   withdrawals: [Withdrawal!]! @derivedFrom(field: "user")
+  rewardClaims: [UserRewardClaim!]! @derivedFrom(field: "user")
   tokenIds: [String!]!
+  totalRewardsClaimed: BigInt!
   createdAt: BigInt!
   updatedAt: BigInt!
 }
@@ -55,6 +58,25 @@ type Compound @entity {
   timestamp: BigInt!
 }
 
+type FeeDistribution @entity {
+  id: ID!
+  totalFee: BigInt!
+  toHolders: BigInt!
+  toTreasury: BigInt!
+  transactionHash: Bytes!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type UserRewardClaim @entity {
+  id: ID!
+  user: User!
+  amount: BigInt!
+  transactionHash: Bytes!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
 type DailyMetric @entity {
   id: ID!
   date: Int!
@@ -63,4 +85,63 @@ type DailyMetric @entity {
   totalUsers: Int!
   dailyRewards: BigInt!
   dailyFees: BigInt!
+  dailyFeesToHolders: BigInt!
+  dailyFeesToTreasury: BigInt!
+}
+
+# ── Governance ────────────────────────────────────────────────────────────────
+
+enum ProposalStatus {
+  PENDING
+  ACTIVE
+  CANCELED
+  DEFEATED
+  SUCCEEDED
+  QUEUED
+  EXECUTED
+  EXPIRED
+}
+
+type GovernanceProposal @entity {
+  id: ID!
+  proposalId: BigInt!
+  proposer: Bytes!
+  description: String!
+  targets: [Bytes!]!
+  calldatas: [Bytes!]!
+  startBlock: BigInt!
+  endBlock: BigInt!
+  status: ProposalStatus!
+  forVotes: BigInt!
+  againstVotes: BigInt!
+  abstainVotes: BigInt!
+  executed: Boolean!
+  createdAt: BigInt!
+  updatedAt: BigInt!
+  votes: [GovernanceVote!]! @derivedFrom(field: "proposal")
+}
+
+type GovernanceVote @entity {
+  id: ID!
+  proposal: GovernanceProposal!
+  voter: Bytes!
+  support: Int!
+  weight: BigInt!
+  reason: String
+  transactionHash: Bytes!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type TimelockOperation @entity {
+  id: ID!
+  operationId: Bytes!
+  target: Bytes!
+  value: BigInt!
+  data: Bytes!
+  predecessor: Bytes!
+  delay: BigInt!
+  status: String!
+  scheduledAt: BigInt!
+  executedAt: BigInt
 }

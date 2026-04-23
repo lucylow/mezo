@@ -24,6 +24,14 @@ import "./VeMEZOVaultToken.sol";
  *         remainder back into veMEZO — growing everyone's underlying position
  *         without manual intervention.
  *
+ * Decentralization additions (Phase 3)
+ * ──────────────────────────────────────
+ *  • Performance fee is now split: a configurable fraction (feeDistributionRate)
+ *    goes to vveMEZO holders via a pull-based reward pool; the rest goes to treasury.
+ *  • `claimFeeRewards()` lets any vveMEZO holder claim their accumulated share.
+ *  • `setFeeDistributionRate()` and `setPerformanceFee()` are now routed through
+ *    the VaultTimelockController when governance is active.
+ *
  * Architecture
  * ────────────
  *  ┌─────────────┐   deposit NFT    ┌──────────────────────────┐
@@ -33,7 +41,9 @@ import "./VeMEZOVaultToken.sol";
  *  └─────────────┘                  │  compoundAll() (keeper)  │
  *                                   │   • claimRebase          │
  *                                   │   • claimRewards         │
- *                                   │   • take fee → treasury  │
+ *                                   │   • split fee:           │
+ *                                   │     → holders (pull)     │
+ *                                   │     → treasury           │
  *                                   │   • increaseAmount       │
  *                                   │   • increaseUnlockTime   │
  *                                   └──────────────────────────┘
@@ -60,6 +70,7 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     address public keeper;
     uint256 public performanceFee   = 1000;         // 10% in basis points
     uint256 public constant MAX_PERFORMANCE_FEE = 2000; // 20% cap
+    uint256 public constant MIN_PERFORMANCE_FEE = 500;  // 5% floor
     address public treasury;
     uint256 public minDepositValue  = 1e18;
     bool    public autoMaxLock      = true;
@@ -70,10 +81,29 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     /// @notice Optional MUSD savings vault; shares are minted to `treasury` when auto-stake is on.
     address public musdSavingsVault;
 
+    // ── Fee distribution to vveMEZO holders (Phase 3) ───────────────────────
+
+    /// @notice Fraction of collected MUSD fees distributed to vveMEZO holders (basis points).
+    ///         10000 = 100%, 5000 = 50%.  The remainder goes to treasury.
+    uint256 public feeDistributionRate = 5000;
+    uint256 public constant MAX_FEE_DISTRIBUTION_RATE = 9000; // 90% max to holders
+
+    /// @dev Precision multiplier for per-share fee accounting.
+    uint256 private constant PRECISION = 1e18;
+
+    /// @dev Cumulative MUSD fee per vveMEZO share (scaled by PRECISION).
+    uint256 public feePerShare;
+
+    /// @dev Per-user reward debt checkpoint.
+    mapping(address => uint256) public userRewardDebt;
+
+    /// @dev Total MUSD currently in the reward pool (not yet claimed).
+    uint256 public feePool;
+
     // ── State ────────────────────────────────────────────────────────────────
     uint256 public totalUnderlying;
     uint256 public lastCompoundTime;
-    /// @notice Cumulative performance fees received in MUSD (18 decimals) when DEX routing is active.
+    /// @notice Cumulative performance fees received in MUSD (18 decimals).
     uint256 public totalFeesCollectedMusd;
 
     mapping(uint256 => address)           public nftOwner;
@@ -93,6 +123,9 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     event FeeCollected(uint256 mezoAmount, uint256 musdAmount, address treasury);
     event TreasuryStaked(uint256 musdAmount, uint256 sharesReceived);
     event AutoStakeMUSDUpdated(bool enabled, address savingsVault);
+    event FeeDistributed(uint256 totalFee, uint256 toHolders, uint256 toTreasury);
+    event FeeDistributionRateUpdated(uint256 oldRate, uint256 newRate);
+    event RewardsClaimed(address indexed user, uint256 amount);
 
     modifier onlyKeeper() {
         require(msg.sender == keeper, "VeMEZOAutoCompounder: caller is not keeper");
@@ -138,6 +171,9 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         uint256 nftValue = veMEZO.balanceOfNFT(tokenId);
         require(nftValue >= minDepositValue, "Below minimum deposit value");
 
+        // Checkpoint reward debt before share balance changes.
+        _updateRewardDebt(msg.sender);
+
         nftOwner[tokenId] = msg.sender;
         _userTokenIds[msg.sender].add(tokenId);
         _depositedTokenIds.add(tokenId);
@@ -156,6 +192,7 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         nonReentrant
         returns (uint256 totalShares)
     {
+        _updateRewardDebt(msg.sender);
         uint256 totalValue = 0;
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tid = tokenIds[i];
@@ -181,6 +218,10 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     /// @notice Withdraw a specific NFT by tokenId (burns proportional shares).
     function withdraw(uint256 tokenId) external nonReentrant returns (uint256 shares) {
         require(nftOwner[tokenId] == msg.sender, "Not depositor");
+
+        // Auto-claim pending fee rewards on withdrawal.
+        _claimPendingRewards(msg.sender);
+
         uint256 nftValue = veMEZO.balanceOfNFT(tokenId);
         shares = vaultToken.convertToShares(nftValue);
         require(shares <= vaultToken.balanceOf(msg.sender), "Insufficient shares");
@@ -200,6 +241,9 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     function withdrawByShares(uint256 shares) external nonReentrant returns (uint256 tokenId) {
         require(shares > 0, "Zero shares");
         require(shares <= vaultToken.balanceOf(msg.sender), "Insufficient shares");
+
+        _claimPendingRewards(msg.sender);
+
         tokenId = _findWithdrawableNFT(msg.sender, shares);
         require(tokenId != 0, "No suitable NFT found");
 
@@ -276,6 +320,60 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         }
     }
 
+    // ── Fee distribution ─────────────────────────────────────────────────────
+
+    /**
+     * @notice Claim accumulated fee rewards for the caller.
+     *         Rewards are proportional to the caller's vveMEZO balance at
+     *         each compound epoch.
+     */
+    function claimFeeRewards() external nonReentrant {
+        uint256 pending = _calculatePendingRewards(msg.sender);
+        require(pending > 0, "No pending rewards");
+        _claimPendingRewards(msg.sender);
+    }
+
+    /**
+     * @notice View the pending fee rewards for a given user.
+     */
+    function pendingFeeRewards(address user) external view returns (uint256) {
+        return _calculatePendingRewards(user);
+    }
+
+    function _calculatePendingRewards(address user) internal view returns (uint256) {
+        uint256 userShares  = vaultToken.balanceOf(user);
+        if (userShares == 0) return 0;
+        uint256 accumulated = (userShares * feePerShare) / PRECISION;
+        uint256 debt        = userRewardDebt[user];
+        return accumulated > debt ? accumulated - debt : 0;
+    }
+
+    function _claimPendingRewards(address user) internal {
+        uint256 pending = _calculatePendingRewards(user);
+        _updateRewardDebt(user);
+        if (pending == 0) return;
+
+        feePool -= pending;
+        IERC20(address(musdToken)).safeTransfer(user, pending);
+        emit RewardsClaimed(user, pending);
+    }
+
+    function _updateRewardDebt(address user) internal {
+        uint256 userShares = vaultToken.balanceOf(user);
+        userRewardDebt[user] = (userShares * feePerShare) / PRECISION;
+    }
+
+    function _distributeToHolders(uint256 amount) internal {
+        uint256 totalShares = vaultToken.totalSupply();
+        if (totalShares == 0) {
+            // No holders: fall through to treasury
+            IERC20(address(musdToken)).safeTransfer(treasury, amount);
+            return;
+        }
+        feePool    += amount;
+        feePerShare += (amount * PRECISION) / totalShares;
+    }
+
     // ── View helpers ─────────────────────────────────────────────────────────
 
     function getDepositedTokenIds() public view returns (uint256[] memory) {
@@ -335,7 +433,8 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     }
 
     /**
-     * @dev Swap performance fee MEZO to MUSD via Tigris, then send MUSD to treasury or stake in savings vault.
+     * @dev Swap performance fee MEZO to MUSD via Tigris, then split between
+     *      vveMEZO holder reward pool and treasury.
      */
     function _collectFeeInMUSD(uint256 feeAmountMezo) internal returns (uint256 musdAmount) {
         if (feeAmountMezo == 0) return 0;
@@ -358,16 +457,27 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
 
         mezoToken.forceApprove(address(tigrisRouter), 0);
 
-        if (autoStakeMUSD && musdSavingsVault != address(0)) {
-            IERC20(address(musdToken)).forceApprove(musdSavingsVault, musdAmount);
-            uint256 shares = IMUSDSavingsVault(musdSavingsVault).deposit(musdAmount, treasury);
-            IERC20(address(musdToken)).forceApprove(musdSavingsVault, 0);
-            emit TreasuryStaked(musdAmount, shares);
-        } else {
-            IERC20(address(musdToken)).safeTransfer(treasury, musdAmount);
+        // Split: feeDistributionRate fraction → holder pool, remainder → treasury.
+        uint256 toHolders  = (musdAmount * feeDistributionRate) / 10000;
+        uint256 toTreasury = musdAmount - toHolders;
+
+        if (toHolders > 0) {
+            _distributeToHolders(toHolders);
+        }
+
+        if (toTreasury > 0) {
+            if (autoStakeMUSD && musdSavingsVault != address(0)) {
+                IERC20(address(musdToken)).forceApprove(musdSavingsVault, toTreasury);
+                uint256 shares = IMUSDSavingsVault(musdSavingsVault).deposit(toTreasury, treasury);
+                IERC20(address(musdToken)).forceApprove(musdSavingsVault, 0);
+                emit TreasuryStaked(toTreasury, shares);
+            } else {
+                IERC20(address(musdToken)).safeTransfer(treasury, toTreasury);
+            }
         }
 
         emit FeeCollected(feeAmountMezo, musdAmount, treasury);
+        emit FeeDistributed(musdAmount, toHolders, toTreasury);
     }
 
     function _minMusdOut(uint256 mezoIn, address[] memory path) internal view returns (uint256) {
@@ -385,9 +495,20 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     }
 
     function setPerformanceFee(uint256 newFee) external onlyOwner {
+        require(newFee >= MIN_PERFORMANCE_FEE, "Below min fee");
         require(newFee <= MAX_PERFORMANCE_FEE, "Exceeds max fee");
         emit PerformanceFeeUpdated(performanceFee, newFee);
         performanceFee = newFee;
+    }
+
+    /**
+     * @notice Update the fraction of fees distributed to vveMEZO holders.
+     * @param newRate Basis points (0–9000). 5000 = 50% to holders, 50% to treasury.
+     */
+    function setFeeDistributionRate(uint256 newRate) external onlyOwner {
+        require(newRate <= MAX_FEE_DISTRIBUTION_RATE, "Exceeds max rate");
+        emit FeeDistributionRateUpdated(feeDistributionRate, newRate);
+        feeDistributionRate = newRate;
     }
 
     function setTreasury(address newTreasury) external onlyOwner {

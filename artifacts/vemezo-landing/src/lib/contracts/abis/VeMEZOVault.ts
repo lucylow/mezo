@@ -183,4 +183,57 @@ export const VeMEZOVaultABI = [
       { name: "sharesReceived", type: "uint256", indexed: false },
     ],
   },
+  // ── Fee distribution (Phase 3) ────────────────────────────────────────────
+  {
+    name: "feeDistributionRate",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "feePool",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "pendingFeeRewards",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "user", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "claimFeeRewards",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [],
+  },
+  {
+    name: "setFeeDistributionRate",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "newRate", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    name: "FeeDistributed",
+    type: "event",
+    inputs: [
+      { name: "totalFee",    type: "uint256", indexed: false },
+      { name: "toHolders",   type: "uint256", indexed: false },
+      { name: "toTreasury",  type: "uint256", indexed: false },
+    ],
+  },
+  {
+    name: "RewardsClaimed",
+    type: "event",
+    inputs: [
+      { name: "user",   type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
 ] as const;

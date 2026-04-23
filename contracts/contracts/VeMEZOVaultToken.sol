@@ -3,6 +3,8 @@ pragma solidity 0.8.26;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -10,17 +12,22 @@ import "./interfaces/IERC4626.sol";
 
 /**
  * @title VeMEZOVaultToken
- * @notice ERC-20 vault share token (vveMEZO) with ERC-4626 compliance.
+ * @notice ERC-20 vault share token (vveMEZO) with ERC-4626 compliance
+ *         and on-chain governance voting power (ERC-20 Votes / EIP-712).
  *
  * Minted when a user deposits a veMEZO NFT into VeMEZOAutoCompounder and
  * burned when they withdraw.  Share price increases each time the keeper
  * compounds rewards because `_totalAssets` grows while supply stays fixed.
  *
+ * Voting power is self-delegated on mint (unless the holder explicitly
+ * delegates to another address).  This makes vveMEZO immediately usable
+ * as the voting token for VaultGovernor without a separate delegation step.
+ *
  * ERC-4626 deposit/withdraw entry points revert with a helpful message —
  * all actual minting/burning must go through the vault contract, which
  * enforces the NFT ownership check.
  */
-contract VeMEZOVaultToken is ERC20, ERC20Burnable, Ownable2Step, ReentrancyGuard, IERC4626 {
+contract VeMEZOVaultToken is ERC20, ERC20Burnable, ERC20Permit, ERC20Votes, Ownable2Step, ReentrancyGuard, IERC4626 {
 
     // ── Immutables ────────────────────────────────────────────────────────────
     /// @notice The VeMEZOAutoCompounder vault that controls this token.
@@ -44,7 +51,11 @@ contract VeMEZOVaultToken is ERC20, ERC20Burnable, Ownable2Step, ReentrancyGuard
         string memory _symbol,
         address _vault,
         address _asset
-    ) ERC20(_name, _symbol) Ownable(msg.sender) {
+    )
+        ERC20(_name, _symbol)
+        ERC20Permit(_name)
+        Ownable(msg.sender)
+    {
         require(_vault != address(0), "Invalid vault address");
         require(_asset != address(0), "Invalid asset address");
         vault = _vault;
@@ -111,12 +122,19 @@ contract VeMEZOVaultToken is ERC20, ERC20Burnable, Ownable2Step, ReentrancyGuard
     /**
      * @dev Mint vault shares for `to` when `assets` worth of underlying is deposited.
      *      Called exclusively by VeMEZOAutoCompounder.
+     *      Auto-delegates voting power to the recipient if they have not yet delegated.
      */
     function mintShares(address to, uint256 assets) external onlyVault nonReentrant returns (uint256 shares) {
         shares = convertToShares(assets);
         require(shares > 0, "VeMEZOVaultToken: zero shares");
         _mint(to, shares);
         _totalAssets += assets;
+
+        // Auto-delegate to self on first mint so voting power is active immediately.
+        if (delegates(to) == address(0)) {
+            _delegate(to, to);
+        }
+
         emit Deposit(msg.sender, to, assets, shares);
     }
 
@@ -142,8 +160,6 @@ contract VeMEZOVaultToken is ERC20, ERC20Burnable, Ownable2Step, ReentrancyGuard
     }
 
     // ── ERC-4626: standard entry points (intentionally disabled) ─────────────
-    // All deposits/withdrawals must go through the vault, which enforces NFT
-    // ownership.  These stubs satisfy the interface while blocking direct calls.
 
     /// @inheritdoc IERC4626
     function deposit(uint256, address) external pure override returns (uint256) {
@@ -170,5 +186,23 @@ contract VeMEZOVaultToken is ERC20, ERC20Burnable, Ownable2Step, ReentrancyGuard
     /// @notice Emergency override of total assets (owner-only, for recovery).
     function emergencyUpdateTotalAssets(uint256 newTotalAssets) external onlyOwner {
         _totalAssets = newTotalAssets;
+    }
+
+    // ── Required overrides (ERC20 + ERC20Votes) ───────────────────────────────
+
+    function _update(address from, address to, uint256 value)
+        internal
+        override(ERC20, ERC20Votes)
+    {
+        super._update(from, to, value);
+    }
+
+    function nonces(address owner)
+        public
+        view
+        override(ERC20Permit, Nonces)
+        returns (uint256)
+    {
+        return super.nonces(owner);
     }
 }
