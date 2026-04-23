@@ -12,6 +12,8 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IVeMEZO.sol";
 import "./interfaces/IGaugeController.sol";
 import "./interfaces/IMUSD.sol";
+import "./interfaces/ITigrisRouter.sol";
+import "./interfaces/IMUSDSavingsVault.sol";
 import "./VeMEZOVaultToken.sol";
 
 /**
@@ -52,6 +54,7 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     IERC20           public immutable mezoToken;
     IMUSD            public immutable musdToken;
     VeMEZOVaultToken public immutable vaultToken;
+    ITigrisRouter    public immutable tigrisRouter;
 
     // ── Mutable config ──────────────────────────────────────────────────────
     address public keeper;
@@ -62,9 +65,16 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     bool    public autoMaxLock      = true;
     uint256 public constant MAX_LOCK_DURATION = 4 * 365 days;
 
+    /// @notice When set with a non-zero router, performance fees swap to MUSD (Mezo integration).
+    bool    public autoStakeMUSD = true;
+    /// @notice Optional MUSD savings vault; shares are minted to `treasury` when auto-stake is on.
+    address public musdSavingsVault;
+
     // ── State ────────────────────────────────────────────────────────────────
     uint256 public totalUnderlying;
     uint256 public lastCompoundTime;
+    /// @notice Cumulative performance fees received in MUSD (18 decimals) when DEX routing is active.
+    uint256 public totalFeesCollectedMusd;
 
     mapping(uint256 => address)           public nftOwner;
     mapping(address => EnumerableSet.UintSet) private _userTokenIds;
@@ -80,6 +90,9 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     event MinDepositValueUpdated(uint256 oldValue, uint256 newValue);
     event AutoMaxLockUpdated(bool enabled);
     event EmergencyWithdrawal(address indexed user, uint256 indexed tokenId);
+    event FeeCollected(uint256 mezoAmount, uint256 musdAmount, address treasury);
+    event TreasuryStaked(uint256 musdAmount, uint256 sharesReceived);
+    event AutoStakeMUSDUpdated(bool enabled, address savingsVault);
 
     modifier onlyKeeper() {
         require(msg.sender == keeper, "VeMEZOAutoCompounder: caller is not keeper");
@@ -92,7 +105,8 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         address _gaugeController,
         address _mezoToken,
         address _musdToken,
-        address _treasury
+        address _treasury,
+        address _tigrisRouter
     ) Ownable(msg.sender) {
         require(_veMEZO           != address(0), "Invalid veMEZO address");
         require(_gaugeController  != address(0), "Invalid gauge controller");
@@ -105,6 +119,7 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         mezoToken       = IERC20(_mezoToken);
         musdToken       = IMUSD(_musdToken);
         treasury        = _treasury;
+        tigrisRouter    = ITigrisRouter(_tigrisRouter);
         keeper          = msg.sender;
 
         vaultToken = new VeMEZOVaultToken(
@@ -244,7 +259,14 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         fee       = (rewards * performanceFee) / 10000;
         compounded = rewards - fee;
 
-        if (fee > 0) mezoToken.safeTransfer(treasury, fee);
+        if (fee > 0) {
+            if (address(tigrisRouter) != address(0)) {
+                uint256 musdAmt = _collectFeeInMUSD(fee);
+                totalFeesCollectedMusd += musdAmt;
+            } else {
+                mezoToken.safeTransfer(treasury, fee);
+            }
+        }
         if (compounded > 0) {
             mezoToken.forceApprove(address(veMEZO), compounded);
             veMEZO.increaseAmount(tokenId, compounded);
@@ -312,6 +334,48 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         return bestId;
     }
 
+    /**
+     * @dev Swap performance fee MEZO to MUSD via Tigris, then send MUSD to treasury or stake in savings vault.
+     */
+    function _collectFeeInMUSD(uint256 feeAmountMezo) internal returns (uint256 musdAmount) {
+        if (feeAmountMezo == 0) return 0;
+
+        address[] memory path = new address[](2);
+        path[0] = address(mezoToken);
+        path[1] = address(musdToken);
+
+        uint256 minOut = _minMusdOut(feeAmountMezo, path);
+        mezoToken.forceApprove(address(tigrisRouter), feeAmountMezo);
+
+        uint256[] memory amounts = tigrisRouter.swapExactTokensForTokens(
+            feeAmountMezo,
+            minOut,
+            path,
+            address(this),
+            block.timestamp + 300
+        );
+        musdAmount = amounts[amounts.length - 1];
+
+        mezoToken.forceApprove(address(tigrisRouter), 0);
+
+        if (autoStakeMUSD && musdSavingsVault != address(0)) {
+            IERC20(address(musdToken)).forceApprove(musdSavingsVault, musdAmount);
+            uint256 shares = IMUSDSavingsVault(musdSavingsVault).deposit(musdAmount, treasury);
+            IERC20(address(musdToken)).forceApprove(musdSavingsVault, 0);
+            emit TreasuryStaked(musdAmount, shares);
+        } else {
+            IERC20(address(musdToken)).safeTransfer(treasury, musdAmount);
+        }
+
+        emit FeeCollected(feeAmountMezo, musdAmount, treasury);
+    }
+
+    function _minMusdOut(uint256 mezoIn, address[] memory path) internal view returns (uint256) {
+        uint256[] memory quote = tigrisRouter.getAmountsOut(mezoIn, path);
+        uint256 expected = quote[quote.length - 1];
+        return (expected * 99) / 100;
+    }
+
     // ── Admin ────────────────────────────────────────────────────────────────
 
     function updateKeeper(address newKeeper) external onlyOwner {
@@ -340,6 +404,12 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     function setAutoMaxLock(bool enabled) external onlyOwner {
         autoMaxLock = enabled;
         emit AutoMaxLockUpdated(enabled);
+    }
+
+    function setAutoStakeMUSD(bool enabled, address savingsVault) external onlyOwner {
+        autoStakeMUSD = enabled;
+        musdSavingsVault = savingsVault;
+        emit AutoStakeMUSDUpdated(enabled, savingsVault);
     }
 
     function pause()   external onlyOwner { _pause(); }

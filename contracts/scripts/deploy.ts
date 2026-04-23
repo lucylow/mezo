@@ -11,6 +11,7 @@ async function main() {
   const MEZO_TOKEN_ADDRESS       = process.env.MEZO_TOKEN_ADDRESS       || "0x0000000000000000000000000000000000000000";
   const MUSD_TOKEN_ADDRESS       = process.env.MUSD_TOKEN_ADDRESS       || "0x0000000000000000000000000000000000000000";
   const TREASURY_ADDRESS         = process.env.TREASURY_ADDRESS         || deployer.address;
+  const TIGRIS_ROUTER_ADDRESS    = process.env.TIGRIS_ROUTER_ADDRESS    || "0x0000000000000000000000000000000000000000";
 
   console.log("\nDeploying VeMEZOAutoCompounder...");
   const VeMEZOAutoCompounder = await ethers.getContractFactory("VeMEZOAutoCompounder");
@@ -20,6 +21,7 @@ async function main() {
     MEZO_TOKEN_ADDRESS,
     MUSD_TOKEN_ADDRESS,
     TREASURY_ADDRESS,
+    TIGRIS_ROUTER_ADDRESS,
   );
 
   await vault.waitForDeployment();
@@ -39,6 +41,7 @@ async function main() {
         MEZO_TOKEN_ADDRESS,
         MUSD_TOKEN_ADDRESS,
         TREASURY_ADDRESS,
+        TIGRIS_ROUTER_ADDRESS,
       ],
     });
     console.log("Verified!");
