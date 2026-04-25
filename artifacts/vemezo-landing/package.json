@@ -75,6 +75,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@mezo-org/passport": "^0.17.2",
     "@rainbow-me/rainbowkit": "^2.2.10",
     "viem": "^2.48.0",
     "wagmi": "^2.19.5",
