@@ -166,3 +166,13 @@ type TimelockOperation @entity {
   scheduledAt: BigInt!
   executedAt: BigInt
 }
+
+type EpochVote @entity {
+  id: ID!
+  epochTimestamp: BigInt!
+  tokenCount: BigInt!
+  gaugeCount: BigInt!
+  transactionHash: Bytes!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}

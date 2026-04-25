@@ -486,6 +486,72 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         return (expected * 99) / 100;
     }
 
+    // ── Gauge voting (epoch management) ──────────────────────────────────────
+
+    /**
+     * @notice Gauge allocation for voting — maps gauge address to weight (bps, must sum ≤ 10000).
+     */
+    struct GaugeVote {
+        address gauge;
+        uint256 weight; // basis points
+    }
+
+    GaugeVote[] public gaugeVotes;
+    uint256 public lastVoteTime;
+
+    event GaugesVoted(uint256 indexed epochTimestamp, uint256 tokenCount, uint256 gaugeCount);
+    event GaugeVotesSet(GaugeVote[] votes);
+
+    /**
+     * @notice Configure the gauge allocation used when voteForGauges is called.
+     * @param votes Array of (gauge, weight) pairs.  Weights must sum ≤ 10000.
+     */
+    function setGaugeVotes(GaugeVote[] calldata votes) external onlyOwner {
+        uint256 totalWeight;
+        for (uint256 i = 0; i < votes.length; i++) {
+            require(votes[i].gauge != address(0), "Invalid gauge");
+            totalWeight += votes[i].weight;
+        }
+        require(totalWeight <= 10000, "Weights exceed 10000 bps");
+
+        delete gaugeVotes;
+        for (uint256 i = 0; i < votes.length; i++) {
+            gaugeVotes.push(votes[i]);
+        }
+        emit GaugeVotesSet(votes);
+    }
+
+    /**
+     * @notice Re-cast votes for every deposited veMEZO NFT across the configured gauges.
+     *         Must be called once per epoch (Thursdays ~00:05 UTC) by the keeper.
+     *         veMEZO voting power decays and votes must be refreshed every 7-day epoch.
+     */
+    function voteForGauges() external {
+        require(msg.sender == keeper || msg.sender == owner(), "Not keeper");
+        uint256 len = gaugeVotes.length;
+        require(len > 0, "No gauge votes configured");
+
+        uint256[] memory tokenIds = getDepositedTokenIds();
+        uint256 tokenCount = tokenIds.length;
+
+        for (uint256 i = 0; i < tokenCount; i++) {
+            for (uint256 j = 0; j < len; j++) {
+                try gaugeController.vote(tokenIds[i], gaugeVotes[j].gauge, gaugeVotes[j].weight) {}
+                catch {}
+            }
+        }
+
+        lastVoteTime = block.timestamp;
+        emit GaugesVoted(block.timestamp, tokenCount, len);
+    }
+
+    /**
+     * @notice Returns the configured gauge vote allocations.
+     */
+    function getGaugeVotes() external view returns (GaugeVote[] memory) {
+        return gaugeVotes;
+    }
+
     // ── Admin ────────────────────────────────────────────────────────────────
 
     function updateKeeper(address newKeeper) external onlyOwner {

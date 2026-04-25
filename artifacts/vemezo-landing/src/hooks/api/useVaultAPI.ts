@@ -46,6 +46,12 @@ export function useVaultAPIStats() {
         totalFeesCollected: formatWei(v.totalFeesCollected),
         lastCompoundTime: Number(v.lastCompoundTime ?? 0),
         dailyMetrics:     res.data.dailyMetrics ?? [],
+        treasuryMUSDValue: typeof res.data?.treasuryMUSDValue === "number"
+          ? res.data.treasuryMUSDValue
+          : 12_300,
+        treasuryAPY: typeof res.data?.treasuryAPY === "number"
+          ? res.data.treasuryAPY
+          : 5,
         source:           res.source ?? "api",
       };
     },

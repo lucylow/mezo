@@ -56,7 +56,11 @@ const VAULT_ABI = [
   "function getPendingRewards()          external view returns (uint256)",
   "function getDepositedTokenCount()     external view returns (uint256)",
   "function performanceFee()             external view returns (uint256)",
+  "function voteForGauges()              external",
+  "function lastVoteTime()               external view returns (uint256)",
+  "function getGaugeVotes()              external view returns (tuple(address gauge, uint256 weight)[])",
   "event Compounded(uint256 totalRewards, uint256 fee, uint256 amountCompounded)",
+  "event GaugesVoted(uint256 indexed epochTimestamp, uint256 tokenCount, uint256 gaugeCount)",
 ];
 
 const vaultIface = new ethers.Interface(VAULT_ABI);
@@ -143,12 +147,63 @@ async function compound(): Promise<void> {
   }
 }
 
+// ── Gauge vote recasting ──────────────────────────────────────────────────────
+
+/**
+ * Re-cast gauge votes for all deposited veMEZO NFTs.
+ * veMEZO voting power decays and must be recast every epoch (7-day Thursday cycle).
+ * Runs slightly after compound so updated balances are reflected in vote weight.
+ */
+async function recastVotes(): Promise<void> {
+  if (!VAULT_ADDRESS || !KEEPER_KEY) return;
+
+  const provider = new ethers.JsonRpcProvider(RPC_URL);
+  const wallet   = new ethers.Wallet(KEEPER_KEY, provider);
+  const vault    = new ethers.Contract(VAULT_ADDRESS, VAULT_ABI, wallet);
+
+  try {
+    const gaugeVotes = await vault.getGaugeVotes();
+    if (gaugeVotes.length === 0) {
+      logger.info("No gauge votes configured — skipping vote recast");
+      return;
+    }
+
+    const tokenCount = await vault.getDepositedTokenCount();
+    if (tokenCount === 0n) {
+      logger.info("No deposited tokens — skipping vote recast");
+      return;
+    }
+
+    logger.info({ tokenCount: tokenCount.toString(), gaugeCount: gaugeVotes.length }, "Recasting epoch votes…");
+    const tx = await vault.voteForGauges({ gasPrice: (await provider.getFeeData()).gasPrice });
+    const receipt = await tx.wait();
+    logger.info({ txHash: tx.hash, blockNumber: receipt.blockNumber }, "Epoch votes recast");
+
+    await notifyCompoundSuccess({
+      txHash: tx.hash,
+      blockNumber: receipt.blockNumber,
+      totalRewards: 0n,
+      fee: 0n,
+      amountCompounded: 0n,
+      profitability: { canCompound: true, pendingRewards: 0n, gasCost: 0n, gasPrice: 0n, tokenCount: Number(tokenCount), marginBps: 0n },
+    }).catch(() => {});
+
+  } catch (err: any) {
+    logger.warn({ err: err.message }, "Vote recast failed — will retry next epoch");
+  }
+}
+
 // ── Scheduler ─────────────────────────────────────────────────────────────────
 
 // Primary: run after epoch ends (Thursdays 00:05 UTC — Mezo epoch rhythm)
+// Step 1: compound rewards, Step 2 (2 min later): recast gauge votes
 cron.schedule("5 0 * * 4", () => {
-  logger.info("Epoch cron triggered");
+  logger.info("Epoch cron triggered — compounding then recasting votes");
   compound().catch((e) => logger.error(e));
+});
+cron.schedule("7 0 * * 4", () => {
+  logger.info("Epoch vote-recast cron triggered");
+  recastVotes().catch((e) => logger.error(e));
 });
 
 // Backup: every 6 hours in case the epoch cron is missed

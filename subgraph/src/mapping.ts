@@ -8,6 +8,7 @@ import {
   FeeCollected,
   TreasuryStaked,
   RewardsClaimed,
+  GaugesVoted,
 } from "../generated/VeMEZOAutoCompounder/VeMEZOAutoCompounder";
 import {
   ProposalCreated,
@@ -35,6 +36,7 @@ import {
   GovernanceProposal,
   GovernanceVote,
   TimelockOperation,
+  EpochVote,
 } from "../generated/schema";
 
 const VAULT_ID = "vemezo-auto-compounder";
@@ -397,4 +399,18 @@ export function handleCancelled(event: Cancelled): void {
   if (!op) return;
   op.status = "CANCELLED";
   op.save();
+}
+
+// ── Gauge vote handlers ───────────────────────────────────────────────────
+
+export function handleGaugesVoted(event: GaugesVoted): void {
+  let id = event.transaction.hash.toHexString() + "-" + event.logIndex.toString();
+  let ev = new EpochVote(id);
+  ev.epochTimestamp = event.params.epochTimestamp;
+  ev.tokenCount = event.params.tokenCount;
+  ev.gaugeCount = event.params.gaugeCount;
+  ev.transactionHash = event.transaction.hash;
+  ev.blockNumber = event.block.number;
+  ev.timestamp = event.block.timestamp;
+  ev.save();
 }

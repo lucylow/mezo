@@ -25,6 +25,8 @@ import { pageTransition, staggerContainer, staggerItem, cardHoverProps } from "@
 import { FeeDisplay } from "@/components/vault/FeeDisplay";
 import { CompoundingSimulator } from "@/components/vault/CompoundingSimulator";
 import { PositionOverview } from "@/components/vault/PositionOverview";
+import { BoostCalculator } from "@/components/vault/BoostCalculator";
+import { EpochTimer } from "@/components/vault/EpochTimer";
 
 const MOCK_AVAILABLE_NFTS = [
   { id: "4092", amount: 1200, unlockDate: "2026-01-01" },
@@ -311,7 +313,9 @@ export default function Vault() {
         </div>
 
         <div className="space-y-6">
+          <EpochTimer />
           <PositionOverview />
+          <BoostCalculator />
           <CompoundingSimulator />
           <FeeDisplay />
           {/* Pool ownership donut */}

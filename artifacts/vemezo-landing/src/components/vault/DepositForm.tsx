@@ -42,7 +42,7 @@ export function DepositForm({ onSuccess }: DepositFormProps) {
         id: n.tokenId.toString(),
         tokenId: n.tokenId,
         amount: Number(formatEther(n.value ?? BigInt(0))),
-        unlockDate: n.unlockDate ?? "",
+        unlockDate: n.lockEnd ? n.lockEnd.toISOString().slice(0, 10) : "",
       }))
     : MOCK_NFTS;
 

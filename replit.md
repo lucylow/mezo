@@ -140,6 +140,33 @@ All endpoints return `{ data, source }` where `source` is `"mock"` when
 - Landing page (`src/pages/home.tsx`) must NEVER be modified
 - Stack is React + Vite + Wouter (NOT Next.js) — no `use client`, no next/image
 - Wallet: `injected()` connector only (no WalletConnect project ID)
+  - `@mezo-org/passport` is installed but NOT imported in browser code (web3/Buffer/process Node deps break Vite).
+  - The passport package is available in keeper/ and server-side Node contexts.
+  - WalletModal shows Mezo Passport branding with Bitcoin wallet guidance.
 - UI: Radix UI (NO headlessui)
+
+## Recent Feature Additions (April 2026)
+
+### Smart Contracts
+- `VeMEZOAutoCompounder.sol`: Added `voteForGauges()` function — recasts gauge votes for all deposited NFTs (keeper-callable, epoch-aligned). Also added `setGaugeVotes()`, `getGaugeVotes()`, `GaugeVote` struct, `lastVoteTime` state, and `GaugesVoted`/`GaugeVotesSet` events.
+
+### Keeper Bot (`keeper/src/index.ts`)
+- Added `recastVotes()` function — calls `voteForGauges()` on vault after compound.
+- Epoch cron: compound at Thursday 00:05 UTC, vote recast at Thursday 00:07 UTC.
+- Vault ABI updated with `voteForGauges`, `lastVoteTime`, `getGaugeVotes`, `GaugesVoted` event.
+
+### Frontend New Components
+- `BoostCalculator.tsx`: Interactive slider showing veMEZO lock duration → boost multiplier → effective APR (max 2.5× at 4-year lock).
+- `EpochTimer.tsx`: Live countdown to next epoch (Thursday 00:05 UTC) with progress bar.
+
+### Subgraph Updates
+- `schema.graphql`: Added `EpochVote` entity.
+- `subgraph.yaml`: Added `GaugesVoted` event handler.
+- `mapping.ts`: Added `handleGaugesVoted` function.
+
+### Type Fixes
+- `useVaultAPI.ts`: Added `treasuryMUSDValue` and `treasuryAPY` to select transform.
+- `client.ts` (`VaultStatsData`): Added optional `treasuryMUSDValue` and `treasuryAPY` fields.
+- `DepositForm.tsx`: Fixed `unlockDate` → uses `n.lockEnd.toISOString()`.
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.

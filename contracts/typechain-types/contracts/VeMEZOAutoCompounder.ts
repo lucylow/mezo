@@ -23,6 +23,15 @@ import type {
   TypedContractMethod,
 } from "../common";
 
+export declare namespace VeMEZOAutoCompounder {
+  export type GaugeVoteStruct = { gauge: AddressLike; weight: BigNumberish };
+
+  export type GaugeVoteStructOutput = [gauge: string, weight: bigint] & {
+    gauge: string;
+    weight: bigint;
+  };
+}
+
 export interface VeMEZOAutoCompounderInterface extends Interface {
   getFunction(
     nameOrSignature:
@@ -44,13 +53,16 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
       | "feePerShare"
       | "feePool"
       | "gaugeController"
+      | "gaugeVotes"
       | "getDepositedTokenCount"
       | "getDepositedTokenIds"
+      | "getGaugeVotes"
       | "getPendingRewards"
       | "getUserTokenCount"
       | "getUserTokenIds"
       | "keeper"
       | "lastCompoundTime"
+      | "lastVoteTime"
       | "mezoToken"
       | "minDepositValue"
       | "musdSavingsVault"
@@ -67,6 +79,7 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
       | "setAutoMaxLock"
       | "setAutoStakeMUSD"
       | "setFeeDistributionRate"
+      | "setGaugeVotes"
       | "setMinDepositValue"
       | "setPerformanceFee"
       | "setTreasury"
@@ -80,6 +93,7 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
       | "userRewardDebt"
       | "vaultToken"
       | "veMEZO"
+      | "voteForGauges"
       | "withdraw"
       | "withdrawByShares"
   ): FunctionFragment;
@@ -94,6 +108,8 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
       | "FeeCollected"
       | "FeeDistributed"
       | "FeeDistributionRateUpdated"
+      | "GaugeVotesSet"
+      | "GaugesVoted"
       | "KeeperUpdated"
       | "MinDepositValueUpdated"
       | "OwnershipTransferStarted"
@@ -177,11 +193,19 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "gaugeVotes",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
     functionFragment: "getDepositedTokenCount",
     values?: undefined
   ): string;
   encodeFunctionData(
     functionFragment: "getDepositedTokenIds",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "getGaugeVotes",
     values?: undefined
   ): string;
   encodeFunctionData(
@@ -199,6 +223,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
   encodeFunctionData(functionFragment: "keeper", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "lastCompoundTime",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "lastVoteTime",
     values?: undefined
   ): string;
   encodeFunctionData(functionFragment: "mezoToken", values?: undefined): string;
@@ -251,6 +279,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     values: [BigNumberish]
   ): string;
   encodeFunctionData(
+    functionFragment: "setGaugeVotes",
+    values: [VeMEZOAutoCompounder.GaugeVoteStruct[]]
+  ): string;
+  encodeFunctionData(
     functionFragment: "setMinDepositValue",
     values: [BigNumberish]
   ): string;
@@ -293,6 +325,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(functionFragment: "veMEZO", values?: undefined): string;
+  encodeFunctionData(
+    functionFragment: "voteForGauges",
+    values?: undefined
+  ): string;
   encodeFunctionData(
     functionFragment: "withdraw",
     values: [BigNumberish]
@@ -368,12 +404,17 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     functionFragment: "gaugeController",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(functionFragment: "gaugeVotes", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "getDepositedTokenCount",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
     functionFragment: "getDepositedTokenIds",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "getGaugeVotes",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -391,6 +432,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
   decodeFunctionResult(functionFragment: "keeper", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "lastCompoundTime",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "lastVoteTime",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "mezoToken", data: BytesLike): Result;
@@ -440,6 +485,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "setGaugeVotes",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "setMinDepositValue",
     data: BytesLike
   ): Result;
@@ -479,6 +528,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
   ): Result;
   decodeFunctionResult(functionFragment: "vaultToken", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "veMEZO", data: BytesLike): Result;
+  decodeFunctionResult(
+    functionFragment: "voteForGauges",
+    data: BytesLike
+  ): Result;
   decodeFunctionResult(functionFragment: "withdraw", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "withdrawByShares",
@@ -621,6 +674,42 @@ export namespace FeeDistributionRateUpdatedEvent {
   export interface OutputObject {
     oldRate: bigint;
     newRate: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace GaugeVotesSetEvent {
+  export type InputTuple = [votes: VeMEZOAutoCompounder.GaugeVoteStruct[]];
+  export type OutputTuple = [
+    votes: VeMEZOAutoCompounder.GaugeVoteStructOutput[]
+  ];
+  export interface OutputObject {
+    votes: VeMEZOAutoCompounder.GaugeVoteStructOutput[];
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace GaugesVotedEvent {
+  export type InputTuple = [
+    epochTimestamp: BigNumberish,
+    tokenCount: BigNumberish,
+    gaugeCount: BigNumberish
+  ];
+  export type OutputTuple = [
+    epochTimestamp: bigint,
+    tokenCount: bigint,
+    gaugeCount: bigint
+  ];
+  export interface OutputObject {
+    epochTimestamp: bigint;
+    tokenCount: bigint;
+    gaugeCount: bigint;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -881,9 +970,21 @@ export interface VeMEZOAutoCompounder extends BaseContract {
 
   gaugeController: TypedContractMethod<[], [string], "view">;
 
+  gaugeVotes: TypedContractMethod<
+    [arg0: BigNumberish],
+    [[string, bigint] & { gauge: string; weight: bigint }],
+    "view"
+  >;
+
   getDepositedTokenCount: TypedContractMethod<[], [bigint], "view">;
 
   getDepositedTokenIds: TypedContractMethod<[], [bigint[]], "view">;
+
+  getGaugeVotes: TypedContractMethod<
+    [],
+    [VeMEZOAutoCompounder.GaugeVoteStructOutput[]],
+    "view"
+  >;
 
   getPendingRewards: TypedContractMethod<[], [bigint], "view">;
 
@@ -894,6 +995,8 @@ export interface VeMEZOAutoCompounder extends BaseContract {
   keeper: TypedContractMethod<[], [string], "view">;
 
   lastCompoundTime: TypedContractMethod<[], [bigint], "view">;
+
+  lastVoteTime: TypedContractMethod<[], [bigint], "view">;
 
   mezoToken: TypedContractMethod<[], [string], "view">;
 
@@ -935,6 +1038,12 @@ export interface VeMEZOAutoCompounder extends BaseContract {
 
   setFeeDistributionRate: TypedContractMethod<
     [newRate: BigNumberish],
+    [void],
+    "nonpayable"
+  >;
+
+  setGaugeVotes: TypedContractMethod<
+    [votes: VeMEZOAutoCompounder.GaugeVoteStruct[]],
     [void],
     "nonpayable"
   >;
@@ -984,6 +1093,8 @@ export interface VeMEZOAutoCompounder extends BaseContract {
   vaultToken: TypedContractMethod<[], [string], "view">;
 
   veMEZO: TypedContractMethod<[], [string], "view">;
+
+  voteForGauges: TypedContractMethod<[], [void], "nonpayable">;
 
   withdraw: TypedContractMethod<
     [tokenId: BigNumberish],
@@ -1070,11 +1181,25 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     nameOrSignature: "gaugeController"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
+    nameOrSignature: "gaugeVotes"
+  ): TypedContractMethod<
+    [arg0: BigNumberish],
+    [[string, bigint] & { gauge: string; weight: bigint }],
+    "view"
+  >;
+  getFunction(
     nameOrSignature: "getDepositedTokenCount"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "getDepositedTokenIds"
   ): TypedContractMethod<[], [bigint[]], "view">;
+  getFunction(
+    nameOrSignature: "getGaugeVotes"
+  ): TypedContractMethod<
+    [],
+    [VeMEZOAutoCompounder.GaugeVoteStructOutput[]],
+    "view"
+  >;
   getFunction(
     nameOrSignature: "getPendingRewards"
   ): TypedContractMethod<[], [bigint], "view">;
@@ -1089,6 +1214,9 @@ export interface VeMEZOAutoCompounder extends BaseContract {
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "lastCompoundTime"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "lastVoteTime"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "mezoToken"
@@ -1147,6 +1275,13 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     nameOrSignature: "setFeeDistributionRate"
   ): TypedContractMethod<[newRate: BigNumberish], [void], "nonpayable">;
   getFunction(
+    nameOrSignature: "setGaugeVotes"
+  ): TypedContractMethod<
+    [votes: VeMEZOAutoCompounder.GaugeVoteStruct[]],
+    [void],
+    "nonpayable"
+  >;
+  getFunction(
     nameOrSignature: "setMinDepositValue"
   ): TypedContractMethod<[newMin: BigNumberish], [void], "nonpayable">;
   getFunction(
@@ -1185,6 +1320,9 @@ export interface VeMEZOAutoCompounder extends BaseContract {
   getFunction(
     nameOrSignature: "veMEZO"
   ): TypedContractMethod<[], [string], "view">;
+  getFunction(
+    nameOrSignature: "voteForGauges"
+  ): TypedContractMethod<[], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "withdraw"
   ): TypedContractMethod<[tokenId: BigNumberish], [bigint], "nonpayable">;
@@ -1247,6 +1385,20 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     FeeDistributionRateUpdatedEvent.InputTuple,
     FeeDistributionRateUpdatedEvent.OutputTuple,
     FeeDistributionRateUpdatedEvent.OutputObject
+  >;
+  getEvent(
+    key: "GaugeVotesSet"
+  ): TypedContractEvent<
+    GaugeVotesSetEvent.InputTuple,
+    GaugeVotesSetEvent.OutputTuple,
+    GaugeVotesSetEvent.OutputObject
+  >;
+  getEvent(
+    key: "GaugesVoted"
+  ): TypedContractEvent<
+    GaugesVotedEvent.InputTuple,
+    GaugesVotedEvent.OutputTuple,
+    GaugesVotedEvent.OutputObject
   >;
   getEvent(
     key: "KeeperUpdated"
@@ -1413,6 +1565,28 @@ export interface VeMEZOAutoCompounder extends BaseContract {
       FeeDistributionRateUpdatedEvent.InputTuple,
       FeeDistributionRateUpdatedEvent.OutputTuple,
       FeeDistributionRateUpdatedEvent.OutputObject
+    >;
+
+    "GaugeVotesSet(tuple[])": TypedContractEvent<
+      GaugeVotesSetEvent.InputTuple,
+      GaugeVotesSetEvent.OutputTuple,
+      GaugeVotesSetEvent.OutputObject
+    >;
+    GaugeVotesSet: TypedContractEvent<
+      GaugeVotesSetEvent.InputTuple,
+      GaugeVotesSetEvent.OutputTuple,
+      GaugeVotesSetEvent.OutputObject
+    >;
+
+    "GaugesVoted(uint256,uint256,uint256)": TypedContractEvent<
+      GaugesVotedEvent.InputTuple,
+      GaugesVotedEvent.OutputTuple,
+      GaugesVotedEvent.OutputObject
+    >;
+    GaugesVoted: TypedContractEvent<
+      GaugesVotedEvent.InputTuple,
+      GaugesVotedEvent.OutputTuple,
+      GaugesVotedEvent.OutputObject
     >;
 
     "KeeperUpdated(address,address)": TypedContractEvent<

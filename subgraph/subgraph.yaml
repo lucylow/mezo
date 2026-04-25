@@ -45,6 +45,8 @@ dataSources:
           handler: handleTreasuryStaked
         - event: RewardsClaimed(indexed address,uint256)
           handler: handleRewardsClaimed
+        - event: GaugesVoted(indexed uint256,uint256,uint256)
+          handler: handleGaugesVoted
       file: ./src/mapping.ts
 
   # ── Governor ──────────────────────────────────────────────────────────────

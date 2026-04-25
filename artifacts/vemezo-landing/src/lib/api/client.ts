@@ -69,6 +69,8 @@ export interface VaultStatsData {
     dailyFees: string;
     totalUsers?: number;
   }>;
+  treasuryMUSDValue?: number;
+  treasuryAPY?: number;
 }
 
 export function fetchVaultStats() {
