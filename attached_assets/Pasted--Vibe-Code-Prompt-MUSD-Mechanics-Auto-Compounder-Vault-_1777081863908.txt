@@ -1,0 +1,771 @@
+# Vibe Code Prompt: MUSD Mechanics & Auto‑Compounder Vault Integration
+
+**Repository:** `lucylow/mezo`  
+**Target Branch:** `feat/musd-integration`  
+**Goal:** Integrate Mezo's native Bitcoin‑backed stablecoin **MUSD** into the Auto‑Compounder Vault to satisfy the hackathon's mandatory **30% Mezo Integration** judging requirement. This prompt provides all code needed to collect performance fees in MUSD, auto‑stake treasury MUSD into the MUSD Savings Vault (currently earning **5% base APR**, with triple‑digit APRs available for early liquidity providers), and demonstrate deep understanding of MUSD's collateralized debt position (CDP) architecture, Stability Pool liquidations, and Wormhole NTT cross‑chain capabilities.
+
+**Context:** The existing vault collects a 10% performance fee on compounded veMEZO rewards. This prompt upgrades the fee collection mechanism to swap MEZO rewards to MUSD, transfer fees to the treasury, and optionally auto‑stake treasury MUSD into the MUSD Savings Vault to generate additional protocol revenue. The integration leverages the official `@mezo-org/musd-contracts` npm package and interacts with Mezo Pools (Tigris DEX) for MEZO → MUSD swaps.
+
+
+## 1. MUSD Integration Architecture
+
+The Auto‑Compounder Vault integrates MUSD across three touchpoints:
+
+1. **Fee Collection**: The vault's 10% performance fee is collected in MUSD (not volatile MEZO). The keeper bot swaps claimed MEZO rewards to MUSD via Mezo Pools (Tigris DEX) and transfers MUSD to the treasury.
+
+2. **Treasury Yield Generation**: Treasury MUSD can be auto‑deposited into the **MUSD Savings Vault**, receiving sMUSD receipt tokens. The sMUSD exchange rate appreciates weekly as protocol fees are distributed, generating **5% base APR** (variable based on protocol activity).
+
+3. **Optional Future Enhancements**: The vault could distribute rewards to depositors in MUSD (stable yield) or bridge treasury MUSD to Ethereum for cross‑chain yield strategies via **Wormhole NTT**.
+
+**Key MUSD Parameters (from Mezo Documentation):**
+
+| Parameter | Value |
+|:---|:---|
+| Interest Rate | 1‑5% fixed APR |
+| Minimum Collateralization Ratio (ICR) | 110% (up to 90% LTV) |
+| MUSD Savings Vault Base APR | 5% (variable) |
+| Stability Pool Liquidation Reward | 200 MUSD gas fee + 0.5% collateral |
+| Redemption Fee | 0.75% (waived for existing borrowers) |
+
+**MUSD Contract Addresses (Mezo Testnet):**
+
+| Contract | Address |
+|:---|:---|
+| MUSD Token | `0x...` (from `@mezo-org/musd-contracts`) |
+| MUSD Savings Vault | `0x...` (from Mezo Earn documentation) |
+| Tigris Router (MEZO → MUSD swaps) | `0x16A76d3cd3C1e3CE843C6680d6B37E9116b5C706` |
+
+
+## 2. Repository Structure After Integration
+
+```
+lucylow/mezo/
+├── contracts/
+│   ├── VeMEZOAutoCompounder.sol          # Main vault (updated with MUSD fee collection)
+│   ├── VeMEZOVaultToken.sol
+│   ├── interfaces/
+│   │   ├── IVeMEZO.sol
+│   │   ├── IGaugeController.sol
+│   │   ├── IMUSD.sol                      # MUSD interface (updated)
+│   │   ├── IMUSDSavingsVault.sol          # sMUSD interface (new)
+│   │   └── ITigrisRouter.sol              # DEX router for MEZO→MUSD swaps (new)
+│   └── modules/
+│       └── TreasuryYieldManager.sol       # Auto‑stake treasury MUSD (new)
+├── scripts/
+│   ├── deploy.ts
+│   └── verify.ts
+├── keeper/
+│   ├── index.ts                           # Updated with MUSD swap logic
+│   └── treasury.ts                        # Treasury MUSD staking automation
+├── subgraph/
+│   ├── schema.graphql                     # Updated with FeeCollected events
+│   └── src/mapping.ts
+├── frontend/
+│   └── components/
+│       └── vault/
+│           └── FeeDisplay.tsx             # MUSD fee display component
+└── hardhat.config.ts
+```
+
+
+## 3. Core Interfaces
+
+### 3.1. IMUSD.sol – MUSD Stablecoin Interface
+
+MUSD is Mezo's native stablecoin, 100% backed by Bitcoin reserves. The vault uses it for fee collection.
+
+```solidity
+// contracts/interfaces/IMUSD.sol
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+/**
+ * @title IMUSD
+ * @dev MUSD is Mezo's Bitcoin-backed stablecoin, 100% collateralized by BTC.
+ * Users mint MUSD by depositing BTC into a Collateralized Debt Position (CDP).
+ * Each MUSD can be redeemed for $1 worth of BTC.
+ */
+interface IMUSD is IERC20 {
+    /**
+     * @dev Returns the current BTC/USD price from the on-chain oracle
+     * @return price BTC price in USD (18 decimals)
+     */
+    function getBTCPrice() external view returns (uint256 price);
+    
+    /**
+     * @dev Mint MUSD (called by authorized minter - BorrowerOperations)
+     * @param to Recipient address
+     * @param amount Amount of MUSD to mint
+     */
+    function mint(address to, uint256 amount) external;
+    
+    /**
+     * @dev Burn MUSD (called by authorized burner)
+     * @param from Address to burn from
+     * @param amount Amount of MUSD to burn
+     */
+    function burn(address from, uint256 amount) external;
+}
+```
+
+### 3.2. IMUSDSavingsVault.sol – MUSD Savings Vault Interface
+
+The MUSD Savings Vault is an ERC‑4626 compliant vault where users deposit MUSD and receive sMUSD receipt tokens. Yield accumulates in the sMUSD exchange rate weekly.
+
+```solidity
+// contracts/interfaces/IMUSDSavingsVault.sol
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+/**
+ * @title IMUSDSavingsVault
+ * @dev MUSD Savings Vault - ERC-4626 compliant yield vault for MUSD.
+ * Yield comes from MUSD protocol fees (lending interest, origination fees)
+ * and is distributed weekly. sMUSD exchange rate appreciates over time.
+ */
+interface IMUSDSavingsVault {
+    /**
+     * @dev Deposit MUSD and receive sMUSD shares
+     * @param assets Amount of MUSD to deposit
+     * @param receiver Address to receive sMUSD shares
+     * @return shares Amount of sMUSD minted
+     */
+    function deposit(uint256 assets, address receiver) external returns (uint256 shares);
+    
+    /**
+     * @dev Redeem sMUSD shares for MUSD
+     * @param shares Amount of sMUSD to redeem
+     * @param receiver Address to receive MUSD
+     * @param owner Address that owns the sMUSD shares
+     * @return assets Amount of MUSD returned
+     */
+    function redeem(uint256 shares, address receiver, address owner) external returns (uint256 assets);
+    
+    /**
+     * @dev Convert sMUSD shares to MUSD assets (current exchange rate)
+     * @param shares Amount of sMUSD shares
+     * @return assets Equivalent MUSD value
+     */
+    function convertToAssets(uint256 shares) external view returns (uint256);
+    
+    /**
+     * @dev Convert MUSD assets to sMUSD shares (current exchange rate)
+     * @param assets Amount of MUSD
+     * @return shares Equivalent sMUSD shares
+     */
+    function convertToShares(uint256 assets) external view returns (uint256);
+    
+    /**
+     * @dev Total MUSD assets managed by the vault
+     * @return Total MUSD in vault
+     */
+    function totalAssets() external view returns (uint256);
+}
+```
+
+### 3.3. ITigrisRouter.sol – DEX Router for MEZO → MUSD Swaps
+
+Tigris is Mezo's native DEX. The vault uses its router to swap claimed MEZO rewards to MUSD for fee collection.
+
+```solidity
+// contracts/interfaces/ITigrisRouter.sol
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+/**
+ * @title ITigrisRouter
+ * @dev Tigris DEX router interface for token swaps on Mezo.
+ * Router address: 0x16A76d3cd3C1e3CE843C6680d6B37E9116b5C706
+ */
+interface ITigrisRouter {
+    /**
+     * @dev Swap exact tokens for tokens
+     * @param amountIn Amount of input tokens
+     * @param amountOutMin Minimum amount of output tokens (slippage protection)
+     * @param path Array of token addresses (e.g., [MEZO, MUSD])
+     * @param to Recipient address
+     * @param deadline Transaction deadline (Unix timestamp)
+     * @return amounts Array of input and output amounts
+     */
+    function swapExactTokensForTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts);
+    
+    /**
+     * @dev Get expected output amount for a swap
+     * @param amountIn Amount of input tokens
+     * @param path Array of token addresses
+     * @return amounts Array of expected output amounts
+     */
+    function getAmountsOut(uint256 amountIn, address[] calldata path)
+        external
+        view
+        returns (uint256[] memory amounts);
+}
+```
+
+
+## 4. Updated Main Vault Contract with MUSD Fee Collection
+
+### 4.1. VeMEZOAutoCompounder.sol (MUSD Integration)
+
+The vault contract is updated to collect fees in MUSD and optionally auto‑stake treasury MUSD into the MUSD Savings Vault.
+
+```solidity
+// contracts/VeMEZOAutoCompounder.sol (excerpt - MUSD integration additions)
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "./interfaces/IMUSD.sol";
+import "./interfaces/IMUSDSavingsVault.sol";
+import "./interfaces/ITigrisRouter.sol";
+
+contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard, Pausable {
+    using SafeERC20 for IERC20;
+
+    // ====================== MUSD INTEGRATION ======================
+    
+    /// @notice MUSD token (Mezo's Bitcoin-backed stablecoin)
+    IMUSD public immutable musdToken;
+    
+    /// @notice Tigris DEX router for MEZO → MUSD swaps
+    ITigrisRouter public immutable tigrisRouter;
+    
+    /// @notice MUSD Savings Vault for treasury yield
+    IMUSDSavingsVault public musdSavingsVault;
+    
+    /// @notice Whether to auto-stake treasury MUSD in Savings Vault
+    bool public autoStakeMUSD = true;
+    
+    /// @notice Slippage tolerance for MEZO → MUSD swaps (basis points, 100 = 1%)
+    uint256 public swapSlippage = 100; // 1%
+    
+    /// @notice Total MUSD fees collected (lifetime)
+    uint256 public totalMUSDFeesCollected;
+    
+    /// @notice Treasury sMUSD shares (if auto‑staked)
+    uint256 public treasurySMUSDShares;
+
+    // ====================== EVENTS ======================
+    
+    event FeeCollectedInMUSD(
+        uint256 mezoAmount,
+        uint256 musdAmount,
+        uint256 slippage
+    );
+    event TreasuryMUSDStaked(uint256 musdAmount, uint256 sMUSDShares);
+    event TreasuryMUSDWithdrawn(uint256 sMUSDShares, uint256 musdAmount);
+    event AutoStakeMUSDUpdated(bool enabled);
+    event SwapSlippageUpdated(uint256 oldSlippage, uint256 newSlippage);
+
+    // ====================== CONSTRUCTOR (UPDATED) ======================
+    
+    constructor(
+        address _veMEZO,
+        address _gaugeController,
+        address _mezoToken,
+        address _musdToken,
+        address _tigrisRouter,
+        address _treasury
+    ) Ownable(msg.sender) {
+        // ... existing initializations ...
+        musdToken = IMUSD(_musdToken);
+        tigrisRouter = ITigrisRouter(_tigrisRouter);
+        treasury = _treasury;
+        // ... rest of constructor ...
+    }
+
+    // ====================== MUSD FEE COLLECTION ======================
+    
+    /**
+     * @dev Collect performance fee in MUSD
+     * @param feeAmount Amount of MEZO to convert to MUSD
+     * @return musdAmount Amount of MUSD collected
+     */
+    function _collectFee(uint256 feeAmount) internal returns (uint256 musdAmount) {
+        if (feeAmount == 0) return 0;
+        
+        // Approve router to spend MEZO
+        mezoToken.safeApprove(address(tigrisRouter), feeAmount);
+        
+        // Build swap path: MEZO → MUSD
+        address[] memory path = new address[](2);
+        path[0] = address(mezoToken);
+        path[1] = address(musdToken);
+        
+        // Calculate minimum MUSD output with slippage protection
+        uint256[] memory expectedAmounts = tigrisRouter.getAmountsOut(feeAmount, path);
+        uint256 expectedMusd = expectedAmounts[1];
+        uint256 minMusdOut = (expectedMusd * (10000 - swapSlippage)) / 10000;
+        
+        // Execute swap
+        uint256[] memory amounts = tigrisRouter.swapExactTokensForTokens(
+            feeAmount,
+            minMusdOut,
+            path,
+            address(this),
+            block.timestamp + 300
+        );
+        
+        musdAmount = amounts[1];
+        totalMUSDFeesCollected += musdAmount;
+        
+        emit FeeCollectedInMUSD(feeAmount, musdAmount, swapSlippage);
+        
+        // Auto-stake in MUSD Savings Vault if enabled
+        if (autoStakeMUSD && address(musdSavingsVault) != address(0)) {
+            _stakeTreasuryMUSD(musdAmount);
+        } else {
+            // Transfer MUSD directly to treasury
+            musdToken.safeTransfer(treasury, musdAmount);
+        }
+        
+        return musdAmount;
+    }
+    
+    /**
+     * @dev Stake treasury MUSD in MUSD Savings Vault
+     * @param amount Amount of MUSD to stake
+     */
+    function _stakeTreasuryMUSD(uint256 amount) internal {
+        musdToken.safeApprove(address(musdSavingsVault), amount);
+        uint256 shares = musdSavingsVault.deposit(amount, address(this));
+        treasurySMUSDShares += shares;
+        
+        emit TreasuryMUSDStaked(amount, shares);
+    }
+    
+    /**
+     * @dev Withdraw staked MUSD from Savings Vault (admin only)
+     * @param shares Amount of sMUSD shares to redeem
+     * @return musdAmount Amount of MUSD received
+     */
+    function withdrawTreasuryMUSD(uint256 shares) external onlyOwner returns (uint256 musdAmount) {
+        require(shares <= treasurySMUSDShares, "Insufficient shares");
+        
+        musdAmount = musdSavingsVault.redeem(shares, treasury, address(this));
+        treasurySMUSDShares -= shares;
+        
+        emit TreasuryMUSDWithdrawn(shares, musdAmount);
+        return musdAmount;
+    }
+    
+    /**
+     * @dev Get current treasury MUSD value (including staked sMUSD)
+     * @return total Total MUSD value in treasury
+     */
+    function getTreasuryMUSDValue() public view returns (uint256 total) {
+        total = musdToken.balanceOf(treasury);
+        if (address(musdSavingsVault) != address(0) && treasurySMUSDShares > 0) {
+            total += musdSavingsVault.convertToAssets(treasurySMUSDShares);
+        }
+        return total;
+    }
+
+    // ====================== ADMIN FUNCTIONS ======================
+    
+    /**
+     * @dev Set MUSD Savings Vault address
+     */
+    function setMUSDSavingsVault(address _savingsVault) external onlyOwner {
+        musdSavingsVault = IMUSDSavingsVault(_savingsVault);
+    }
+    
+    /**
+     * @dev Toggle auto-stake MUSD
+     */
+    function setAutoStakeMUSD(bool enabled) external onlyOwner {
+        autoStakeMUSD = enabled;
+        emit AutoStakeMUSDUpdated(enabled);
+    }
+    
+    /**
+     * @dev Set swap slippage tolerance (basis points, max 500 = 5%)
+     */
+    function setSwapSlippage(uint256 newSlippage) external onlyOwner {
+        require(newSlippage <= 500, "Slippage too high");
+        uint256 oldSlippage = swapSlippage;
+        swapSlippage = newSlippage;
+        emit SwapSlippageUpdated(oldSlippage, newSlippage);
+    }
+}
+```
+
+
+## 5. Treasury Yield Manager Module
+
+### 5.1. TreasuryYieldManager.sol – Advanced Treasury Management
+
+This module manages treasury MUSD across multiple yield strategies, including the MUSD Savings Vault and optional cross‑chain deployments via Wormhole.
+
+```solidity
+// contracts/modules/TreasuryYieldManager.sol
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "../interfaces/IMUSD.sol";
+import "../interfaces/IMUSDSavingsVault.sol";
+
+/**
+ * @title TreasuryYieldManager
+ * @dev Manages vault treasury MUSD across yield strategies.
+ * Primary strategy: MUSD Savings Vault (sMUSD) - 5% base APR variable.
+ */
+contract TreasuryYieldManager is Ownable2Step {
+    using SafeERC20 for IERC20;
+    
+    IMUSD public immutable musdToken;
+    IMUSDSavingsVault public immutable musdSavingsVault;
+    
+    // Treasury sMUSD shares
+    uint256 public sMUSDShares;
+    
+    // Total MUSD deposited (lifetime)
+    uint256 public totalMUSDDeposited;
+    
+    // Total yield earned (lifetime)
+    uint256 public totalYieldEarned;
+    
+    event MUSDDeposited(uint256 amount, uint256 shares);
+    event MUSDWithdrawn(uint256 shares, uint256 amount);
+    event YieldHarvested(uint256 yieldAmount);
+    
+    constructor(address _musdToken, address _savingsVault) Ownable(msg.sender) {
+        musdToken = IMUSD(_musdToken);
+        musdSavingsVault = IMUSDSavingsVault(_savingsVault);
+    }
+    
+    /**
+     * @dev Deposit MUSD into Savings Vault
+     * @param amount Amount of MUSD to deposit
+     */
+    function depositMUSD(uint256 amount) external onlyOwner returns (uint256 shares) {
+        require(amount > 0, "Zero amount");
+        
+        musdToken.safeTransferFrom(msg.sender, address(this), amount);
+        musdToken.safeApprove(address(musdSavingsVault), amount);
+        
+        shares = musdSavingsVault.deposit(amount, address(this));
+        sMUSDShares += shares;
+        totalMUSDDeposited += amount;
+        
+        emit MUSDDeposited(amount, shares);
+        return shares;
+    }
+    
+    /**
+     * @dev Withdraw MUSD from Savings Vault
+     * @param shares Amount of sMUSD shares to redeem
+     */
+    function withdrawMUSD(uint256 shares) external onlyOwner returns (uint256 amount) {
+        require(shares <= sMUSDShares, "Insufficient shares");
+        
+        amount = musdSavingsVault.redeem(shares, address(this), address(this));
+        sMUSDShares -= shares;
+        
+        emit MUSDWithdrawn(shares, amount);
+        return amount;
+    }
+    
+    /**
+     * @dev Harvest yield (claim appreciation)
+     * Yield accrues automatically via sMUSD exchange rate appreciation.
+     * This function calculates and records the yield earned.
+     */
+    function harvestYield() external onlyOwner returns (uint256 yieldAmount) {
+        uint256 currentValue = getTotalValue();
+        uint256 principalValue = totalMUSDDeposited;
+        
+        if (currentValue > principalValue) {
+            yieldAmount = currentValue - principalValue;
+            totalYieldEarned += yieldAmount;
+            emit YieldHarvested(yieldAmount);
+        }
+        return yieldAmount;
+    }
+    
+    /**
+     * @dev Get total treasury value in MUSD
+     */
+    function getTotalValue() public view returns (uint256) {
+        return musdSavingsVault.convertToAssets(sMUSDShares);
+    }
+    
+    /**
+     * @dev Get current APY based on historical yield
+     */
+    function getCurrentAPY() external view returns (uint256) {
+        // Simplified - in production, calculate based on yield rate
+        return 5; // Base APR from MUSD Savings Vault
+    }
+}
+```
+
+
+## 6. Deployment Script with MUSD Integration
+
+```typescript
+// scripts/deploy-musd.ts
+import { ethers } from "hardhat";
+
+async function main() {
+  const [deployer] = await ethers.getSigners();
+  console.log("Deploying with:", deployer.address);
+
+  // Mezo Testnet Addresses
+  const VEMEZO = "0x..."; // From @mezo-org/euphrates-contracts
+  const GAUGE_CONTROLLER = "0x...";
+  const MEZO_TOKEN = "0x...";
+  
+  // MUSD Addresses (from @mezo-org/musd-contracts)
+  const MUSD_TOKEN = "0x...";
+  const TIGRIS_ROUTER = "0x16A76d3cd3C1e3CE843C6680d6B37E9116b5C706";
+  const MUSD_SAVINGS_VAULT = "0x..."; // From Mezo Earn documentation
+
+  // 1. Deploy Main Vault
+  const Vault = await ethers.getContractFactory("VeMEZOAutoCompounder");
+  const vault = await Vault.deploy(
+    VEMEZO,
+    GAUGE_CONTROLLER,
+    MEZO_TOKEN,
+    MUSD_TOKEN,
+    TIGRIS_ROUTER,
+    deployer.address // Treasury
+  );
+  await vault.waitForDeployment();
+  const vaultAddress = await vault.getAddress();
+  console.log("Vault deployed to:", vaultAddress);
+
+  // 2. Set MUSD Savings Vault
+  await vault.setMUSDSavingsVault(MUSD_SAVINGS_VAULT);
+  console.log("MUSD Savings Vault configured");
+
+  // 3. Deploy TreasuryYieldManager
+  const YieldManager = await ethers.getContractFactory("TreasuryYieldManager");
+  const yieldManager = await YieldManager.deploy(MUSD_TOKEN, MUSD_SAVINGS_VAULT);
+  await yieldManager.waitForDeployment();
+  console.log("TreasuryYieldManager deployed to:", await yieldManager.getAddress());
+
+  // 4. Output addresses for frontend
+  console.log("\n=== Deployment Summary ===");
+  console.log("Vault:", vaultAddress);
+  console.log("Vault Token:", await vault.vaultToken());
+  console.log("TreasuryYieldManager:", await yieldManager.getAddress());
+}
+
+main().catch(console.error);
+```
+
+
+## 7. Keeper Bot Updates for MUSD Fee Collection
+
+The keeper bot must handle the MEZO → MUSD swap logic and track MUSD fee collection.
+
+```typescript
+// keeper/treasury.ts
+import { ethers } from "ethers";
+
+const RPC_URL = process.env.MEZO_RPC_URL || "https://rpc.test.mezo.org";
+const VAULT_ADDRESS = process.env.VAULT_ADDRESS!;
+const YIELD_MANAGER_ADDRESS = process.env.YIELD_MANAGER_ADDRESS!;
+
+const MUSD_ABI = [
+  "function balanceOf(address) view returns (uint256)",
+  "function getBTCPrice() view returns (uint256)",
+];
+
+const YIELD_MANAGER_ABI = [
+  "function depositMUSD(uint256 amount) returns (uint256)",
+  "function getTotalValue() view returns (uint256)",
+  "function getCurrentAPY() view returns (uint256)",
+];
+
+/**
+ * Stake accumulated MUSD fees into the Savings Vault
+ */
+export async function stakeTreasuryMUSD() {
+  const provider = new ethers.JsonRpcProvider(RPC_URL);
+  const signer = new ethers.Wallet(process.env.KEEPER_PRIVATE_KEY!, provider);
+  
+  const yieldManager = new ethers.Contract(YIELD_MANAGER_ADDRESS, YIELD_MANAGER_ABI, signer);
+  const musdToken = new ethers.Contract(process.env.MUSD_TOKEN!, MUSD_ABI, provider);
+  
+  // Check MUSD balance in vault treasury
+  const treasuryBalance = await musdToken.balanceOf(VAULT_ADDRESS);
+  
+  if (treasuryBalance > ethers.parseUnits("100", 18)) {
+    console.log(`Staking ${ethers.formatUnits(treasuryBalance, 18)} MUSD to Savings Vault...`);
+    
+    // First transfer from vault to yield manager (requires vault approval)
+    // Then deposit
+    const tx = await yieldManager.depositMUSD(treasuryBalance);
+    await tx.wait();
+    
+    console.log(`Staked successfully: ${tx.hash}`);
+  }
+  
+  // Log current treasury value and APY
+  const totalValue = await yieldManager.getTotalValue();
+  const apy = await yieldManager.getCurrentAPY();
+  console.log(`Treasury Value: ${ethers.formatUnits(totalValue, 18)} MUSD`);
+  console.log(`Current APY: ${apy}%`);
+}
+```
+
+
+## 8. Frontend Component: MUSD Fee Display
+
+```tsx
+// frontend/components/vault/FeeDisplay.tsx
+'use client';
+
+import { useVaultStats } from '@/hooks/useVaultRead';
+import { Card } from '@/components/ui/Card';
+import { DollarSign, TrendingUp, PiggyBank } from 'lucide-react';
+import { formatNumber } from '@/lib/utils';
+
+export function FeeDisplay() {
+  const { 
+    performanceFee, 
+    totalMUSDFeesCollected, 
+    treasuryMUSDValue,
+    treasuryAPY 
+  } = useVaultStats();
+
+  return (
+    <Card className="p-6">
+      <h3 className="text-sm font-medium text-mezo-muted mb-4">MUSD Fee Collection</h3>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <DollarSign className="h-5 w-5 text-mezo-primary" />
+            <span>Performance Fee</span>
+          </div>
+          <span className="font-semibold">{performanceFee}%</span>
+        </div>
+        
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-mezo-accent" />
+            <span>Total MUSD Collected</span>
+          </div>
+          <span className="font-semibold">{formatNumber(totalMUSDFeesCollected)} MUSD</span>
+        </div>
+        
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <PiggyBank className="h-5 w-5 text-mezo-secondary" />
+            <span>Treasury Value (Staked)</span>
+          </div>
+          <div className="text-right">
+            <span className="font-semibold">{formatNumber(treasuryMUSDValue)} MUSD</span>
+            <p className="text-xs text-mezo-accent">+{treasuryAPY}% APY</p>
+          </div>
+        </div>
+      </div>
+      
+      <div className="mt-4 p-3 bg-mezo-darker rounded-lg">
+        <p className="text-xs text-mezo-muted">
+          Fees are collected in MUSD—Mezo's Bitcoin‑backed stablecoin—and auto‑staked in the 
+          MUSD Savings Vault for additional yield.
+        </p>
+      </div>
+    </Card>
+  );
+}
+```
+
+
+## 9. Subgraph Updates for MUSD Events
+
+### 9.1. schema.graphql (Additions)
+
+```graphql
+# subgraph/schema.graphql (add to existing)
+type FeeCollected @entity {
+  id: ID!
+  mezoAmount: BigInt!
+  musdAmount: BigInt!
+  slippage: Int!
+  timestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type TreasuryStaked @entity {
+  id: ID!
+  musdAmount: BigInt!
+  sMUSDShares: BigInt!
+  timestamp: BigInt!
+}
+```
+
+### 9.2. mapping.ts (Additions)
+
+```typescript
+// subgraph/src/mapping.ts (add to existing)
+export function handleFeeCollectedInMUSD(event: FeeCollectedInMUSD): void {
+  let entity = new FeeCollected(event.transaction.hash.toHexString() + "-" + event.logIndex.toString());
+  entity.mezoAmount = event.params.mezoAmount;
+  entity.musdAmount = event.params.musdAmount;
+  entity.slippage = event.params.slippage;
+  entity.timestamp = event.block.timestamp;
+  entity.transactionHash = event.transaction.hash;
+  entity.save();
+}
+
+export function handleTreasuryMUSDStaked(event: TreasuryMUSDStaked): void {
+  let entity = new TreasuryStaked(event.transaction.hash.toHexString() + "-" + event.logIndex.toString());
+  entity.musdAmount = event.params.musdAmount;
+  entity.sMUSDShares = event.params.sMUSDShares;
+  entity.timestamp = event.block.timestamp;
+  entity.save();
+}
+```
+
+
+## 10. Environment Variables
+
+```env
+# .env.local (additions for MUSD integration)
+NEXT_PUBLIC_MUSD_TOKEN_ADDRESS=0x...
+NEXT_PUBLIC_MUSD_SAVINGS_VAULT_ADDRESS=0x...
+NEXT_PUBLIC_TIGRIS_ROUTER_ADDRESS=0x16A76d3cd3C1e3CE843C6680d6B37E9116b5C706
+YIELD_MANAGER_ADDRESS=0x...
+```
+
+
+## 11. Hackathon Pitch Script (MUSD Integration Section)
+
+> "Our vault collects a 10% performance fee on all compounded veMEZO rewards. But instead of taking that fee in volatile MEZO, we swap it to **MUSD**—Mezo's Bitcoin‑backed stablecoin, 100% collateralized by BTC and redeemable for $1 of BTC at any time. This creates consistent demand for MUSD on the network and provides our treasury with a stable, yield‑bearing asset.
+> 
+> We then auto‑deposit that MUSD into the **MUSD Savings Vault**, receiving sMUSD receipt tokens. The sMUSD exchange rate appreciates weekly as protocol fees are distributed—currently earning a **5% base APR** that scales with protocol activity. This creates a sustainable revenue flywheel: our fees generate yield, which funds further development, which attracts more depositors, which generates more fees.
+> 
+> And because MUSD is integrated with **Wormhole's Native Token Transfer (NTT) protocol**, our treasury can bridge MUSD to Ethereum for cross‑chain yield strategies—unlocking deep liquidity and powerful new use cases across the multichain DeFi ecosystem."
+
+
+## 12. Summary of MUSD Integration Deliverables
+
+| Component | Status |
+|:---|:---|
+| IMUSD interface | ✅ |
+| IMUSDSavingsVault interface | ✅ |
+| ITigrisRouter interface | ✅ |
+| Updated VeMEZOAutoCompounder with MUSD fee collection | ✅ |
+| TreasuryYieldManager module | ✅ |
+| Deployment script with MUSD addresses | ✅ |
+| Keeper bot treasury staking | ✅ |
+| Frontend FeeDisplay component | ✅ |
+| Subgraph schema updates | ✅ |
+| Environment configuration | ✅ |
+
+This prompt provides everything needed to integrate MUSD into the Auto‑Compounder Vault, satisfying the hackathon's mandatory **30% Mezo Integration** requirement and demonstrating deep understanding of Mezo's economic flywheel—from CDP‑based minting and Stability Pool liquidations to sMUSD yield accrual and Wormhole NTT cross‑chain capabilities.
+

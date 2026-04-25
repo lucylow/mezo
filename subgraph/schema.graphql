@@ -68,6 +68,27 @@ type FeeDistribution @entity {
   timestamp: BigInt!
 }
 
+# ── MUSD Fee Collection ────────────────────────────────────────────────────────
+
+type FeeCollected @entity {
+  id: ID!
+  mezoAmount: BigInt!
+  musdAmount: BigInt!
+  treasury: Bytes!
+  transactionHash: Bytes!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type TreasuryStaked @entity {
+  id: ID!
+  musdAmount: BigInt!
+  sMUSDShares: BigInt!
+  transactionHash: Bytes!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
 type UserRewardClaim @entity {
   id: ID!
   user: User!

@@ -21,6 +21,8 @@ dataSources:
         - Withdrawal
         - Compound
         - FeeDistribution
+        - FeeCollected
+        - TreasuryStaked
         - UserRewardClaim
         - DailyMetric
       abis:
@@ -37,6 +39,12 @@ dataSources:
           handler: handleFeeDistributed
         - event: FeeRewardClaimed(indexed address,uint256)
           handler: handleFeeRewardClaimed
+        - event: FeeCollected(uint256,uint256,address)
+          handler: handleFeeCollected
+        - event: TreasuryStaked(uint256,uint256)
+          handler: handleTreasuryStaked
+        - event: RewardsClaimed(indexed address,uint256)
+          handler: handleRewardsClaimed
       file: ./src/mapping.ts
 
   # ── Governor ──────────────────────────────────────────────────────────────

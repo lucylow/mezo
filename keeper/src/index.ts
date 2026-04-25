@@ -24,6 +24,7 @@ import "dotenv/config";
 import { checkProfitability, formatProfitabilityResult } from "./profitability";
 import { notifyCompoundSuccess, notifyError, notifySkipped } from "./discord";
 import { deployTreasury } from "./treasury-manager";
+import { runTreasuryDeployment, formatTreasuryStatus } from "./treasury";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -132,7 +133,9 @@ async function compound(): Promise<void> {
     });
 
     // Run treasury deployment opportunistically after each compound
-    await deployTreasury().catch((e: Error) => logger.warn({ err: e.message }, "Treasury deploy skipped"));
+    await deployTreasury().catch((e: Error) => logger.warn({ err: e.message }, "Treasury-manager deploy skipped"));
+    const treasuryStatus = await runTreasuryDeployment().catch(() => null);
+    if (treasuryStatus) logger.info(formatTreasuryStatus(treasuryStatus));
 
   } catch (err: any) {
     logger.error({ err: err.message }, "Compounding failed");

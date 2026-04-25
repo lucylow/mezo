@@ -5,6 +5,9 @@ import {
   Compounded,
   FeeDistributed,
   FeeRewardClaimed,
+  FeeCollected,
+  TreasuryStaked,
+  RewardsClaimed,
 } from "../generated/VeMEZOAutoCompounder/VeMEZOAutoCompounder";
 import {
   ProposalCreated,
@@ -25,6 +28,8 @@ import {
   Withdrawal,
   Compound,
   FeeDistribution,
+  FeeCollected as FeeCollectedEntity,
+  TreasuryStaked as TreasuryStakedEntity,
   UserRewardClaim,
   DailyMetric,
   GovernanceProposal,
@@ -221,6 +226,53 @@ export function handleFeeRewardClaimed(event: FeeRewardClaimed): void {
 
   let claim = new UserRewardClaim(
     event.transaction.hash.toHexString() + "-" + event.logIndex.toString()
+  );
+  claim.user = user.id;
+  claim.amount = event.params.amount;
+  claim.transactionHash = event.transaction.hash;
+  claim.blockNumber = event.block.number;
+  claim.timestamp = event.block.timestamp;
+  claim.save();
+}
+
+export function handleFeeCollected(event: FeeCollected): void {
+  let entity = new FeeCollectedEntity(
+    event.transaction.hash.toHexString() + "-" + event.logIndex.toString()
+  );
+  entity.mezoAmount = event.params.mezoAmount;
+  entity.musdAmount = event.params.musdAmount;
+  entity.treasury = event.params.treasury;
+  entity.transactionHash = event.transaction.hash;
+  entity.blockNumber = event.block.number;
+  entity.timestamp = event.block.timestamp;
+  entity.save();
+
+  let vault = getOrCreateVault();
+  vault.totalFeesCollected = vault.totalFeesCollected.plus(event.params.musdAmount);
+  vault.updatedAt = event.block.timestamp;
+  vault.save();
+}
+
+export function handleTreasuryStaked(event: TreasuryStaked): void {
+  let entity = new TreasuryStakedEntity(
+    event.transaction.hash.toHexString() + "-" + event.logIndex.toString()
+  );
+  entity.musdAmount = event.params.musdAmount;
+  entity.sMUSDShares = event.params.sharesReceived;
+  entity.transactionHash = event.transaction.hash;
+  entity.blockNumber = event.block.number;
+  entity.timestamp = event.block.timestamp;
+  entity.save();
+}
+
+export function handleRewardsClaimed(event: RewardsClaimed): void {
+  let user = getOrCreateUser(event.params.user);
+  user.totalRewardsClaimed = user.totalRewardsClaimed.plus(event.params.amount);
+  user.updatedAt = event.block.timestamp;
+  user.save();
+
+  let claim = new UserRewardClaim(
+    event.transaction.hash.toHexString() + "-RC-" + event.logIndex.toString()
   );
   claim.user = user.id;
   claim.amount = event.params.amount;
