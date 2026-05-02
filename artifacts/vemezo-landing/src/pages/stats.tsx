@@ -8,11 +8,11 @@ import { motion } from "framer-motion";
 import { staggerContainer, staggerItem } from "@/lib/animations";
 
 const MOCK_TVL_DATA = [
-  { date: "Oct 1",  tvl: 3.2 },
-  { date: "Oct 5",  tvl: 3.5 },
-  { date: "Oct 10", tvl: 3.8 },
-  { date: "Oct 15", tvl: 4.0 },
-  { date: "Oct 20", tvl: 4.2 },
+  { date: "Mar 27", tvl: 3.2 },
+  { date: "Apr 3",  tvl: 3.5 },
+  { date: "Apr 10", tvl: 3.8 },
+  { date: "Apr 17", tvl: 4.0 },
+  { date: "Apr 24", tvl: 4.2 },
 ];
 
 const MOCK_HISTORY_DATA = [

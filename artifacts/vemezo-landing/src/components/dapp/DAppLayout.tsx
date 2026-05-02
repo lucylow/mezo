@@ -49,7 +49,7 @@ const MOBILE_PRIMARY: NavItem[] = [
 const ROUTE_LABELS: Record<string, string> = {
   "/app": "Dashboard", "/vault": "Vault", "/portfolio": "Portfolio",
   "/earn": "Earn", "/swap": "Swap", "/governance": "Governance",
-  "/analytics": "Analytics", "/leaderboard": "Leaderboard",
+  "/stats": "Analytics", "/analytics": "Analytics", "/leaderboard": "Leaderboard",
   "/history": "History", "/docs": "Documentation", "/settings": "Settings",
 };
 

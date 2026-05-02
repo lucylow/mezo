@@ -1,0 +1,440 @@
+Below is a long-form, code-heavy frontend implementation plan you can paste into your repo and expand into a 15+ page build spec for the Auto-Compounder Vault for veMEZO Rewards. It is tailored to the Mezo hackathon UX goal, Mezo Passport wallet flow, and the dashboard structure already described in your attached materials.1-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-veMEZO-.docx+1
+Scope and UX goals
+The strongest UX direction for this vault is a “deposit and forget” experience: simple wallet onboarding, clear position visibility, transparent yield, and low-friction deposit/withdraw actions. The design should follow the three principles already identified in your materials: Clarity, Confidence, and Consistency, with accessibility and responsive behavior as first-class requirements. The implementation below turns those goals into concrete app structure, reusable UI primitives, and page-level flows.2-DONE-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-ve.docx+1
+Project structure
+Use a modern Next.js 14 App Router layout with separate concerns for providers, contracts, hooks, state, UI primitives, and feature sections. Keep the vault experience modular so judges can see how each part contributes to UX, technical quality, and Mezo integration.2-DONE-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-ve.docx
+text
+app/
+  layout.tsx
+  page.tsx
+  vault/page.tsx
+  stats/page.tsx
+  history/page.tsx
+  settings/page.tsx
+  providers.tsx
+
+components/
+  nav/
+  sections/
+  vault/
+  wallet/
+  ui/
+  modals/
+  accessibility/
+  charts/
+  feedback/
+
+hooks/
+  contracts/
+  wallet/
+  useResponsive.ts
+  useVaultStats.ts
+  useUserPosition.ts
+  useActivityFeed.ts
+  useVaultActions.ts
+
+lib/
+  contracts.ts
+  chain.ts
+  format.ts
+  design-tokens.ts
+  errors.ts
+  analytics.ts
+
+store/
+  app-store.ts
+  wallet-store.ts
+  ui-store.ts
+This structure is consistent with the frontend/backend split already outlined in your attachments, while giving you room to add polished interactions and live state without turning the codebase into a single giant page file.2-DONE-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-ve.docx
+Design system foundation
+The UI should use a tight design-token system with Mezo-branded colors, semantic status colors, consistent spacing, and clear typography. The biggest improvement you can make to UX is to remove visual ambiguity: every card, badge, button, and alert should communicate hierarchy at a glance.1-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-veMEZO-.docx+1
+ts
+// lib/design-tokens.ts
+export const tokens = {
+  colors: {
+    bg: {
+      primary: "#0A0B0D",
+      secondary: "#050608",
+      elevated: "rgba(20, 22, 26, 0.82)",
+      overlay: "rgba(0, 0, 0, 0.6)",
+    },
+    brand: {
+      primary: "#F5A623",
+      secondary: "#3B82F6",
+      accent: "#10B981",
+      muted: "#6B7280",
+    },
+    border: {
+      default: "rgba(255, 255, 255, 0.08)",
+      strong: "rgba(255, 255, 255, 0.14)",
+    },
+    semantic: {
+      success: "#10B981",
+      warning: "#F59E0B",
+      error: "#EF4444",
+      info: "#3B82F6",
+    },
+  },
+  spacing: {
+    xs: "0.25rem",
+    sm: "0.5rem",
+    md: "1rem",
+    lg: "1.5rem",
+    xl: "2rem",
+    "2xl": "3rem",
+    "3xl": "4rem",
+  },
+  radius: {
+    sm: "0.5rem",
+    md: "0.75rem",
+    lg: "1rem",
+    xl: "1.25rem",
+    "2xl": "1.5rem",
+  },
+} as const;
+Pair that with Tailwind extensions so glass cards, gradients, and focus states are consistent everywhere.2-DONE-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-ve.docx
+ts
+// tailwind.config.ts
+import type { Config } from "tailwindcss";
+import { tokens } from "./lib/design-tokens";
+
+const config: Config = {
+  darkMode: "class",
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./hooks/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
+  theme: {
+    extend: {
+      colors: {
+        mezo: {
+          dark: tokens.colors.bg.primary,
+          darker: tokens.colors.bg.secondary,
+          primary: tokens.colors.brand.primary,
+          secondary: tokens.colors.brand.secondary,
+          accent: tokens.colors.brand.accent,
+          muted: tokens.colors.brand.muted,
+        },
+        border: tokens.colors.border.default,
+      },
+      boxShadow: {
+        glow: "0 0 24px rgba(245, 166, 35, 0.24)",
+      },
+      borderRadius: tokens.radius,
+      spacing: tokens.spacing,
+    },
+  },
+  plugins: [],
+};
+
+export default config;
+Global layout
+The app shell should keep navigation sticky, preserve safe spacing on mobile, and surface wallet state in the header. A skip link and visible focus rings are essential for WCAG-style keyboard access, which your notes explicitly call out.1-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-veMEZO-.docx+1
+tsx
+// app/layout.tsx
+import "./globals.css";
+import { Providers } from "./providers";
+import { Navbar } from "@/components/nav/Navbar";
+import { Footer } from "@/components/nav/Footer";
+
+export const metadata = {
+  title: "veMEZO Auto-Compounder",
+  description: "Auto-compound veMEZO rewards with a clear, accessible Mezo-native dashboard.",
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en" className="dark">
+      <body className="bg-mezo-dark text-white antialiased">
+        <Providers>
+          <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 z-[1600] rounded-lg bg-mezo-primary px-4 py-2 text-white">
+            Skip to main content
+          </a>
+          <Navbar />
+          <main id="main-content" className="pt-16">
+            {children}
+          </main>
+          <Footer />
+        </Providers>
+      </body>
+    </html>
+  );
+}
+Providers and wallet flow
+Mezo Passport should be the wallet entrypoint, with RainbowKit and wagmi wrapped in a single provider boundary. The onboarding goal is simple: let both Bitcoin and EVM users connect without having to understand the chain plumbing behind the scenes.1-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-veMEZO-.docx+1
+tsx
+// app/providers.tsx
+"use client";
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { WagmiProvider } from "wagmi";
+import { RainbowKitProvider, getDefaultConfig } from "@rainbow-me/rainbowkit";
+import { getMezoPassportConfig, mezoMatsnetTestnet } from "mezo-orgpassport";
+import { useState } from "react";
+import "@rainbow-me/rainbowkit/styles.css";
+
+const config = getDefaultConfig({
+  appName: "veMEZO Auto-Compounder",
+  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID!,
+  chains: [mezoMatsnetTestnet, ...getMezoPassportConfig().chains],
+  ssr: true,
+});
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  const [queryClient] = useState(() => new QueryClient());
+  return (
+    <WagmiProvider config={config}>
+      <QueryClientProvider client={queryClient}>
+        <RainbowKitProvider>{children}</RainbowKitProvider>
+      </QueryClientProvider>
+    </WagmiProvider>
+  );
+}
+Homepage sections
+The landing page should do three jobs: explain the product, build confidence, and funnel users toward deposit. A good homepage should show the vault’s purpose, the mechanics, and the payoff in a few screens without forcing the user to read long prose.1-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-veMEZO-.docx+1
+tsx
+// app/page.tsx
+import { Hero } from "@/components/sections/Hero";
+import { StatsOverview } from "@/components/sections/StatsOverview";
+import { HowItWorks } from "@/components/sections/HowItWorks";
+import { VaultPositionPreview } from "@/components/sections/VaultPositionPreview";
+import { CompoundingSimulator } from "@/components/sections/CompoundingSimulator";
+import { RecentActivity } from "@/components/sections/RecentActivity";
+
+export default function HomePage() {
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-10">
+      <Hero />
+      <StatsOverview />
+      <div className="grid gap-8 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <VaultPositionPreview />
+        </div>
+        <RecentActivity />
+      </div>
+      <HowItWorks />
+      <CompoundingSimulator />
+    </div>
+  );
+}
+The hero should anchor the value proposition in one sentence and one primary action. The user should immediately understand that they deposit veMEZO NFTs and the vault compounds them automatically.2-DONE-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-ve.docx+1
+tsx
+// components/sections/Hero.tsx
+"use client";
+
+import Link from "next/link";
+import { ArrowRight, Lock, TrendingUp, Zap } from "lucide-react";
+
+export function Hero() {
+  return (
+    <section className="relative overflow-hidden rounded-3xl border border-border bg-gradient-to-b from-white/[0.03] to-transparent p-8 md:p-12">
+      <div className="max-w-3xl">
+        <p className="mb-3 text-sm uppercase tracking-[0.2em] text-mezo-muted">Mezo Auto-Compounder</p>
+        <h1 className="text-4xl font-bold tracking-tight md:text-6xl">
+          Grow your <span className="text-gradient">veMEZO</span> automatically.
+        </h1>
+        <p className="mt-5 max-w-2xl text-lg text-mezo-muted">
+          Deposit your veMEZO NFT, let the vault claim rewards and relock yield, and monitor everything from a clean Mezo-native dashboard.
+        </p>
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          <Link href="/vault" className="inline-flex items-center justify-center rounded-xl bg-mezo-primary px-6 py-3 font-semibold text-black">
+            Launch Vault <ArrowRight className="ml-2 h-4 w-4" />
+          </Link>
+          <a href="#how-it-works" className="inline-flex items-center justify-center rounded-xl border border-border px-6 py-3 font-semibold">
+            How it works
+          </a>
+        </div>
+      </div>
+    </section>
+  );
+}
+Vault dashboard
+The vault dashboard is the highest-value screen because it must simultaneously reassure the user, expose their position, and make actions obvious. Put the most important metrics first, then action controls, then charts and transparency details underneath.1-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-veMEZO-.docx+1
+tsx
+// components/sections/VaultPositionPreview.tsx
+"use client";
+
+import { Card } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
+
+export function VaultPositionPreview() {
+  return (
+    <Card className="p-6">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">Your vault position</h2>
+          <p className="text-sm text-mezo-muted">A snapshot of your current share, underlying value, and rewards.</p>
+        </div>
+        <Badge variant="success">Live</Badge>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <Metric label="Position Value" value="12,480.21 MEZO" />
+        <Metric label="Vault Share" value="1.42%" />
+        <Metric label="Pending Rewards" value="42.80 MEZO" />
+      </div>
+    </Card>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-border bg-white/[0.03] p-4">
+      <div className="text-xs uppercase tracking-wider text-mezo-muted">{label}</div>
+      <div className="mt-2 text-2xl font-bold">{value}</div>
+    </div>
+  );
+}
+Your full vault page should include tabs for Deposit, Withdraw, History, and Fee Transparency so users always know what they are doing and what will happen next. That structure directly supports the trust-first UX principle emphasized in your notes.2-DONE-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-ve.docx+1
+tsx
+// app/vault/page.tsx
+"use client";
+
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
+import { DepositForm } from "@/components/vault/DepositForm";
+import { WithdrawForm } from "@/components/vault/WithdrawForm";
+import { PositionOverview } from "@/components/vault/PositionOverview";
+import { TransactionHistory } from "@/components/vault/TransactionHistory";
+import { FeeTransparency } from "@/components/vault/FeeTransparency";
+
+export default function VaultPage() {
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-8">
+      <PositionOverview />
+      <Tabs defaultValue="deposit" className="w-full">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="deposit">Deposit</TabsTrigger>
+          <TabsTrigger value="withdraw">Withdraw</TabsTrigger>
+          <TabsTrigger value="history">History</TabsTrigger>
+          <TabsTrigger value="fees">Fees</TabsTrigger>
+        </TabsList>
+        <TabsContent value="deposit"><DepositForm /></TabsContent>
+        <TabsContent value="withdraw"><WithdrawForm /></TabsContent>
+        <TabsContent value="history"><TransactionHistory /></TabsContent>
+        <TabsContent value="fees"><FeeTransparency /></TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+Deposit flow
+Deposit should be the easiest path in the app: select NFT, preview its lock and value, confirm, and receive immediate feedback. A polished deposit interface reduces fear because users can see exactly which NFT they are sending and what the vault will do with it.1-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-veMEZO-.docx+1
+tsx
+// components/vault/DepositForm.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+
+export function DepositForm() {
+  const [selectedTokenId, setSelectedTokenId] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    try {
+      await new Promise((r) => setTimeout(r, 1200));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Card className="p-6">
+      <h3 className="text-lg font-semibold">Deposit veMEZO</h3>
+      <p className="mt-1 text-sm text-mezo-muted">Choose an NFT and preview the vault entry before confirming.</p>
+      <div className="mt-6 space-y-4">
+        <label className="block text-sm font-medium">Select NFT</label>
+        <select
+          value={selectedTokenId}
+          onChange={(e) => setSelectedTokenId(e.target.value)}
+          className="w-full rounded-xl border border-border bg-mezo-darker px-4 py-3"
+        >
+          <option value="">Select an NFT</option>
+          <option value="101">#101 — 4,520 MEZO locked</option>
+          <option value="202">#202 — 2,100 MEZO locked</option>
+        </select>
+        <div className="rounded-xl border border-border bg-white/[0.03] p-4 text-sm text-mezo-muted">
+          Deposit preview: NFT will move to the vault, shares will be minted, and compounding will begin at the next epoch.
+        </div>
+        <Button onClick={handleSubmit} loading={isSubmitting} fullWidth>
+          Deposit NFT
+        </Button>
+      </div>
+    </Card>
+  );
+}
+Withdraw should be equally unambiguous, with a clear distinction between withdrawing by NFT and withdrawing by shares if that mode is supported. This protects confidence because the user never has to guess whether they are redeeming the original lock or a vault share balance.2-DONE-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-ve.docx+1
+Transparency and analytics
+Yield visualization is important because it turns a difficult DeFi mechanic into a legible outcome. Show projected vs actual yield, current APR, total compounded rewards, and fees in a way that is easy to scan on mobile and desktop.1-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-veMEZO-.docx+1
+tsx
+// components/sections/CompoundingSimulator.tsx
+"use client";
+
+import { useState } from "react";
+import { Card } from "@/components/ui/Card";
+
+export function CompoundingSimulator() {
+  const [deposit] = useState(1000);
+  const [apy] = useState(80);
+
+  const final = Math.round(deposit * Math.pow(1 + apy / 100 / 52, 52 * 2));
+  const earned = final - deposit;
+
+  return (
+    <Card className="p-6">
+      <h3 className="text-lg font-semibold">Compounding simulator</h3>
+      <p className="mt-1 text-sm text-mezo-muted">Show users what auto-compounding can do over time.</p>
+      <div className="mt-6 grid gap-4 md:grid-cols-2">
+        <Stat label="Initial deposit" value={`${deposit.toLocaleString()} MEZO`} />
+        <Stat label="Projected after 2y" value={`${final.toLocaleString()} MEZO`} />
+        <Stat label="Total earned" value={`${earned.toLocaleString()} MEZO`} />
+        <Stat label="APY assumption" value={`${apy}%`} />
+      </div>
+    </Card>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-border bg-white/[0.03] p-4">
+      <div className="text-xs uppercase tracking-wider text-mezo-muted">{label}</div>
+      <div className="mt-2 text-xl font-semibold">{value}</div>
+    </div>
+  );
+}
+Accessibility and states
+A DeFi dashboard feels polished when every state is covered: loading, empty, error, wrong network, and disconnected wallet states. Add skeletons, inline alerts, and retry actions so users always know what is happening instead of staring at a blank screen.2-DONE-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-ve.docx+1
+tsx
+// components/ui/Skeleton.tsx
+export function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`animate-pulse rounded-lg bg-white/10 ${className}`} />;
+}
+tsx
+// components/wallet/WalletStatus.tsx
+"use client";
+
+import { AlertCircle } from "lucide-react";
+
+export function WalletStatus({ connected, networkOk }: { connected: boolean; networkOk: boolean }) {
+  if (!connected) {
+    return <div className="rounded-xl border border-border bg-white/[0.03] p-4 text-sm text-mezo-muted">Connect your wallet to view your vault position.</div>;
+  }
+  if (!networkOk) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+        <AlertCircle className="h-4 w-4" />
+        Switch to Mezo Testnet to continue.
+      </div>
+    );
+  }
+  return null;
+}
+Mezo integration details
+Your notes already emphasize that Mezo Passport is not just a convenience layer; it is a judging requirement and a UX differentiator because it supports Bitcoin and EVM wallets in one flow. The frontend should visibly communicate that support, with wallet-specific helpers and network switching, so users don’t feel lost when a Bitcoin wallet behaves differently from MetaMask.1-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-veMEZO-.docx+1
+Recommended finishing touches
+Add live event subscriptions for deposits, withdrawals, and compounds so the dashboard feels active and trustworthy. Add a “What happens next?” drawer near the deposit CTA so new users see the automation steps before they click. Add a fee breakdown panel and a “Why MUSD?” explainer so the hackathon’s Mezo integration score feels deliberate rather than decorative.2-DONE-Mezo.-Encode-Club.-self-service-banking-on-Bitcoin-rails.-_-Auto-Compounder-Vault-for-ve.docx+1
+If you want, I can turn this into a full 15+ page paste-ready repo implementation with individual files for Navbar, WalletConnectButton, VaultDashboard, DepositForm, WithdrawForm, RecentActivity, FeeTransparency, TransactionHistory, theme, hooks, and contract ABIs in one cohesive code package.
+
+
+
+
+
+
+

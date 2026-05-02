@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Trophy, TrendingUp, Users, Crown, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import { cn, formatNumber } from "@/lib/utils";
-import { ReferralWidget } from "@/components/referral/ReferralWidget";
+import { ReferralWidget } from "@/components/referralui/ReferralWidget";
 
 interface LeaderboardEntry {
   rank: number;
