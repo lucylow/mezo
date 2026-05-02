@@ -52,15 +52,38 @@ const logger = winston.createLogger({
 // ── Contract ABI (minimal) ────────────────────────────────────────────────────
 
 const VAULT_ABI = [
+  // ── Compounding ─────────────────────────────────────────────────────────────
   "function compoundAll() external returns (uint256 totalRewards, uint256 totalFee, uint256 totalCompounded)",
+  "function compoundBatch(uint256 startIndex, uint256 batchSize) external returns (uint256 totalRewards, uint256 totalFee, uint256 totalCompounded)",
+
+  // ── Views ────────────────────────────────────────────────────────────────────
   "function getPendingRewards()          external view returns (uint256)",
   "function getDepositedTokenCount()     external view returns (uint256)",
   "function performanceFee()             external view returns (uint256)",
+  "function lastCompoundTime()           external view returns (uint256)",
+  "function minCompoundInterval()        external view returns (uint256)",
+  "function checkUpkeep(uint256 gasPrice) external view returns (bool canCompound)",
+  "function depositUnlockTime(uint256 tokenId) external view returns (uint256)",
+
+  // ── Gauge voting ──────────────────────────────────────────────────────────────
   "function voteForGauges()              external",
   "function lastVoteTime()               external view returns (uint256)",
   "function getGaugeVotes()              external view returns (tuple(address gauge, uint256 weight)[])",
+
+  // ── Multi-keeper management ───────────────────────────────────────────────────
+  "function keeper()                     external view returns (address)",
+  "function authorizedKeepers(address)   external view returns (bool)",
+  "function addKeeper(address newKeeper) external",
+  "function removeKeeper(address keeperToRemove) external",
+  "function updateKeeper(address newKeeper) external",
+
+  // ── Events ────────────────────────────────────────────────────────────────────
   "event Compounded(uint256 totalRewards, uint256 fee, uint256 amountCompounded)",
   "event GaugesVoted(uint256 indexed epochTimestamp, uint256 tokenCount, uint256 gaugeCount)",
+  "event KeeperAdded(address indexed keeper)",
+  "event KeeperRemoved(address indexed keeper)",
+  "event KeeperUpdated(address indexed oldKeeper, address indexed newKeeper)",
+  "event CompoundTooSoon(uint256 nextAllowed, uint256 current)",
 ];
 
 const vaultIface = new ethers.Interface(VAULT_ABI);

@@ -17,7 +17,7 @@ import "./interfaces/IMUSDSavingsVault.sol";
 import "./VeMEZOVaultToken.sol";
 
 /**
- * @title VeMEZOAutoCompounder
+ * @title  VeMEZOAutoCompounder
  * @notice Auto-compounder vault for veMEZO NFTs on the Mezo chain.
  *
  *         Users deposit veMEZO NFTs and receive vveMEZO vault shares.
@@ -25,18 +25,32 @@ import "./VeMEZOVaultToken.sol";
  *         performance fee, and re-locks the remainder — growing every depositor's
  *         underlying position without manual intervention.
  *
- * @dev    Decentralization (Phase 3)
+ * @dev    Security architecture
+ *         ──────────────────────
+ *         • Multi-keeper registry: multiple independent keepers may be authorised
+ *           simultaneously, eliminating the single-point-of-failure of a single key.
+ *         • Deposit lock period: each NFT is locked for `minDepositDuration` after
+ *           deposit to prevent flash-loan share manipulation.
+ *         • Compound cooldown: an on-chain `minCompoundInterval` prevents a
+ *           compromised keeper from spamming `compoundAll()`.
+ *         • Paginated compounding: `compoundBatch()` lets the keeper process large
+ *           vaults in smaller chunks, avoiding block gas-limit DoS.
+ *         • Configurable slippage: `swapSlippageBps` is owner-adjustable so MEV
+ *           protection can be tuned without a contract redeployment.
+ *         • CEI pattern everywhere: all state changes complete before external calls.
+ *         • Pull-based fee rewards: vveMEZO holders call `claimFeeRewards()`.
+ *
+ *         Decentralization (Phase 3)
  *         ──────────────────────────
- *         • Performance fees are split: `feeDistributionRate` basis points go to
- *           vveMEZO holders via a pull-based MUSD reward pool; the rest goes to
- *           treasury (optionally auto-staked into the MUSD Savings Vault).
- *         • `claimFeeRewards()` lets any vveMEZO holder claim their accumulated share.
+ *         • Performance fees are split: `feeDistributionRate` bps go to vveMEZO
+ *           holders via a pull-based MUSD reward pool; the rest goes to treasury
+ *           (optionally auto-staked into the MUSD Savings Vault).
  *         • Gauge votes are recast every epoch via `voteForGauges()` (keeper-callable).
  *
  *         Architecture
  *         ────────────
- *          ┌─────────────┐   deposit NFT    ┌──────────────────────────┐
- *          │    User     │ ───────────────► │  VeMEZOAutoCompounder    │
+ *          ┌─────────────┐  deposit NFT    ┌──────────────────────────┐
+ *          │    User     │ ───────────────►│  VeMEZOAutoCompounder    │
  *          │             │ ◄─────────────── │  (this contract)         │
  *          │             │  vveMEZO shares  │                          │
  *          └─────────────┘                  │  compoundAll() (keeper)  │
@@ -80,6 +94,25 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     error UnauthorizedNFT(address sender);
     error Unauthorized(address caller);
 
+    // ── Security: multi-keeper ────────────────────────────────────────────────
+    error KeeperAlreadyAuthorized(address addr);
+    error KeeperNotAuthorized(address addr);
+
+    // ── Security: deposit lock period ────────────────────────────────────────
+    /// @notice Raised when a withdrawal is attempted before the deposit lock expires.
+    error DepositLocked(uint256 tokenId, uint256 lockedUntil, uint256 current);
+    /// @notice Raised by withdrawByShares when all of the user's NFTs are still locked.
+    error NoUnlockedNFT();
+
+    // ── Security: compound cooldown ──────────────────────────────────────────
+    error CompoundTooSoon(uint256 nextAllowed, uint256 current);
+
+    // ── Security: configurable slippage ──────────────────────────────────────
+    error InvalidSlippage(uint256 provided, uint256 minBps, uint256 maxBps);
+
+    // ── Security: duration bounds ────────────────────────────────────────────
+    error InvalidDuration(uint256 provided, uint256 minVal, uint256 maxVal);
+
     // ── Immutables ───────────────────────────────────────────────────────────
 
     /// @notice The veMEZO NFT contract (ERC-721, time-locked MEZO positions).
@@ -116,10 +149,21 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     ///         Matches the Mezo Earn protocol's hard cap.
     uint256 public constant MAX_LOCK_DURATION = 208 weeks;
 
-    // ── Mutable config ───────────────────────────────────────────────────────
+    // ── Security constants ───────────────────────────────────────────────────
 
-    /// @notice Authorised keeper address (EOA or Defender Relayer).
-    address public keeper;
+    /// @notice Minimum swap slippage tolerance: 0.1% (10 bps).
+    uint256 public constant MIN_SLIPPAGE_BPS = 10;
+
+    /// @notice Maximum swap slippage tolerance: 5% (500 bps).
+    uint256 public constant MAX_SLIPPAGE_BPS = 500;
+
+    /// @notice Maximum configurable compound interval: 7 days.
+    uint256 public constant MAX_COMPOUND_INTERVAL = 7 days;
+
+    /// @notice Maximum configurable deposit lock duration: 30 days.
+    uint256 public constant MAX_DEPOSIT_DURATION = 30 days;
+
+    // ── Mutable config ───────────────────────────────────────────────────────
 
     /// @notice Performance fee in basis points (default 10%).
     uint256 public performanceFee = 1000;
@@ -140,6 +184,42 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     /// @notice Optional MUSD Savings Vault; treasury shares are minted here when
     ///         `autoStakeMUSD` is true and this address is non-zero.
     address public musdSavingsVault;
+
+    // ── Security: multi-keeper ────────────────────────────────────────────────
+
+    /// @notice Registry of all currently authorised keeper addresses.
+    ///         Multiple keepers may be active simultaneously — this eliminates
+    ///         the single-point-of-failure of a single keeper key.
+    mapping(address => bool) public authorizedKeepers;
+
+    /// @notice The primary/canonical keeper address shown in status queries and events.
+    ///         Always a member of `authorizedKeepers`.
+    address public keeper;
+
+    // ── Security: deposit lock period ────────────────────────────────────────
+
+    /// @notice Minimum time (seconds) an NFT must remain in the vault before
+    ///         withdrawal is permitted. Prevents flash-loan share manipulation.
+    ///         Default: 7 days (one epoch). Configurable via `setMinDepositDuration`.
+    uint256 public minDepositDuration = 7 days;
+
+    /// @notice Records the block timestamp at which each tokenId was deposited.
+    ///         Used to enforce the deposit lock period.
+    mapping(uint256 => uint256) public depositedAt;
+
+    // ── Security: compound cooldown ──────────────────────────────────────────
+
+    /// @notice Minimum seconds between successive compound calls.
+    ///         Guards against a compromised keeper spamming `compoundAll()`.
+    ///         Default: 1 hour. Configurable via `setMinCompoundInterval`.
+    uint256 public minCompoundInterval = 1 hours;
+
+    // ── Security: configurable slippage ──────────────────────────────────────
+
+    /// @notice Slippage tolerance for MEZO → MUSD swaps, in basis points.
+    ///         E.g. 100 = 1% maximum deviation from the quoted price.
+    ///         Bounded by [MIN_SLIPPAGE_BPS, MAX_SLIPPAGE_BPS].
+    uint256 public swapSlippageBps = 100;
 
     // ── Fee distribution to vveMEZO holders (Phase 3) ────────────────────────
 
@@ -164,7 +244,7 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     /// @notice Total underlying veMEZO voting-power units managed by the vault.
     uint256 public totalUnderlying;
 
-    /// @notice Unix timestamp of the last successful compoundAll() call.
+    /// @notice Unix timestamp of the last successful compoundAll() or compoundBatch() call.
     uint256 public lastCompoundTime;
 
     /// @notice Cumulative performance fees received in MUSD (18-decimal units).
@@ -199,9 +279,14 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     event Withdrawn(address indexed user, uint256 indexed tokenId, uint256 value, uint256 shares);
     event Compounded(uint256 totalRewards, uint256 fee, uint256 amountCompounded);
     event KeeperUpdated(address indexed oldKeeper, address indexed newKeeper);
+    event KeeperAdded(address indexed keeper);
+    event KeeperRemoved(address indexed keeper);
     event PerformanceFeeUpdated(uint256 oldFee, uint256 newFee);
     event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
     event MinDepositValueUpdated(uint256 oldValue, uint256 newValue);
+    event MinDepositDurationUpdated(uint256 oldDuration, uint256 newDuration);
+    event MinCompoundIntervalUpdated(uint256 oldInterval, uint256 newInterval);
+    event SwapSlippageUpdated(uint256 oldBps, uint256 newBps);
     event AutoMaxLockUpdated(bool enabled);
     event EmergencyWithdrawal(address indexed user, uint256 indexed tokenId);
     event FeeCollected(uint256 mezoAmount, uint256 musdAmount, address treasury);
@@ -215,13 +300,15 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
 
     // ── Modifiers ────────────────────────────────────────────────────────────
 
+    /// @notice Restricts to any address in the `authorizedKeepers` registry.
     modifier onlyKeeper() {
-        if (msg.sender != keeper) revert Unauthorized(msg.sender);
+        if (!authorizedKeepers[msg.sender]) revert Unauthorized(msg.sender);
         _;
     }
 
+    /// @notice Restricts to any authorised keeper or the contract owner.
     modifier onlyKeeperOrOwner() {
-        if (msg.sender != keeper && msg.sender != owner()) revert Unauthorized(msg.sender);
+        if (!authorizedKeepers[msg.sender] && msg.sender != owner()) revert Unauthorized(msg.sender);
         _;
     }
 
@@ -260,7 +347,10 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         musdToken       = IMUSD(_musdToken);
         treasury        = _treasury;
         tigrisRouter    = ITigrisRouter(_tigrisRouter);
-        keeper          = msg.sender;
+
+        // Deployer starts as both primary keeper and an authorised keeper.
+        keeper                      = msg.sender;
+        authorizedKeepers[msg.sender] = true;
 
         vaultToken = new VeMEZOVaultToken(
             "Vault veMEZO Share",
@@ -276,6 +366,8 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
      * @notice Deposit a single veMEZO NFT into the vault and receive vveMEZO shares.
      * @dev    Follows the Checks-Effects-Interactions pattern: all state mutations
      *         are completed before the external safeTransferFrom call.
+     *         The deposited NFT is locked for `minDepositDuration` to prevent
+     *         flash-loan share manipulation.
      * @param  tokenId  The veMEZO NFT to deposit. Caller must own it.
      * @return shares   The number of vveMEZO shares minted to the caller.
      */
@@ -293,7 +385,8 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         // ── Effects ──────────────────────────────────────────────────────────
         _updateRewardDebt(msg.sender);
 
-        nftOwner[tokenId] = msg.sender;
+        nftOwner[tokenId]   = msg.sender;
+        depositedAt[tokenId] = block.timestamp;   // [SEC] deposit lock: start timer
         _userTokenIds[msg.sender].add(tokenId);
         _depositedTokenIds.add(tokenId);
         totalUnderlying += nftValue;
@@ -308,8 +401,9 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     /**
      * @notice Atomically deposit multiple veMEZO NFTs and receive vveMEZO shares.
      * @dev    All ownership checks and state mutations happen before NFT transfers.
-     * @param  tokenIds  Array of veMEZO tokenIds. Must be non-empty; caller must own each.
-     * @return totalShares  Total vveMEZO shares minted.
+     *         Each NFT is individually subject to the deposit lock period.
+     * @param  tokenIds    Array of veMEZO tokenIds. Must be non-empty; caller must own each.
+     * @return totalShares Total vveMEZO shares minted.
      */
     function depositBatch(uint256[] calldata tokenIds)
         external
@@ -324,13 +418,15 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         _updateRewardDebt(msg.sender);
 
         uint256 totalValue;
-        for (uint256 i; i < tokenIds.length;) {
+        uint256 len = tokenIds.length;
+        for (uint256 i; i < len;) {
             uint256 tid = tokenIds[i];
             if (veMEZO.ownerOf(tid) != msg.sender) revert NotOwner(tid, msg.sender);
             uint256 nftValue = veMEZO.balanceOfNFT(tid);
             if (nftValue < minDepositValue) revert BelowMinimumDeposit(nftValue, minDepositValue);
 
-            nftOwner[tid] = msg.sender;
+            nftOwner[tid]    = msg.sender;
+            depositedAt[tid] = block.timestamp;   // [SEC] deposit lock: start timer
             _userTokenIds[msg.sender].add(tid);
             _depositedTokenIds.add(tid);
 
@@ -341,9 +437,8 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         totalShares = vaultToken.mintShares(msg.sender, totalValue);
 
         // Emit per-token events with proportional share allocation.
-        uint256 len = tokenIds.length;
         for (uint256 i; i < len;) {
-            uint256 tid = tokenIds[i];
+            uint256 tid      = tokenIds[i];
             uint256 nftValue = veMEZO.balanceOfNFT(tid);
             uint256 tokenShares = (totalShares * nftValue) / totalValue;
             emit Deposited(msg.sender, tid, nftValue, tokenShares);
@@ -362,6 +457,8 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     /**
      * @notice Withdraw a specific NFT by tokenId (burns proportional vveMEZO shares).
      * @dev    Pause does not block withdrawals — users can always exit.
+     *         Enforces the deposit lock period: if `minDepositDuration` has not
+     *         elapsed since deposit, the call reverts with `DepositLocked`.
      * @param  tokenId  The veMEZO NFT to recover. Caller must be the original depositor.
      * @return shares   The number of vveMEZO shares burned.
      */
@@ -373,6 +470,10 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         // ── Checks ───────────────────────────────────────────────────────────
         if (nftOwner[tokenId] != msg.sender) revert NotDepositor(tokenId, msg.sender);
 
+        // [SEC] Deposit lock: prevent flash-loan share manipulation.
+        uint256 unlockTime = depositedAt[tokenId] + minDepositDuration;
+        if (block.timestamp < unlockTime) revert DepositLocked(tokenId, unlockTime, block.timestamp);
+
         // ── Effects ──────────────────────────────────────────────────────────
         _claimPendingRewards(msg.sender);
 
@@ -382,6 +483,7 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         if (shares > available) revert InsufficientShares(shares, available);
 
         delete nftOwner[tokenId];
+        delete depositedAt[tokenId];
         _userTokenIds[msg.sender].remove(tokenId);
         _depositedTokenIds.remove(tokenId);
         totalUnderlying -= nftValue;
@@ -395,7 +497,8 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
 
     /**
      * @notice Withdraw the vault NFT whose value best matches the given share amount.
-     * @dev    Useful when users want to exit by specifying shares rather than a tokenId.
+     * @dev    Only considers NFTs whose deposit lock period has elapsed.
+     *         Reverts with `NoUnlockedNFT` if all of the caller's NFTs are locked.
      * @param  shares   Amount of vveMEZO shares to redeem.
      * @return tokenId  The NFT returned to the caller.
      */
@@ -412,11 +515,13 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         // ── Effects ──────────────────────────────────────────────────────────
         _claimPendingRewards(msg.sender);
 
+        // [SEC] Only returns an NFT whose deposit lock has elapsed.
         tokenId = _findWithdrawableNFT(msg.sender, shares);
-        if (tokenId == 0) revert NoSuitableNFT();
+        if (tokenId == 0) revert NoUnlockedNFT();
 
         uint256 nftValue = veMEZO.balanceOfNFT(tokenId);
         delete nftOwner[tokenId];
+        delete depositedAt[tokenId];
         _userTokenIds[msg.sender].remove(tokenId);
         _depositedTokenIds.remove(tokenId);
         totalUnderlying -= nftValue;
@@ -434,6 +539,11 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
      * @notice Compound all deposited NFTs (keeper-only).
      *         Claims rebase + gauge rewards, deducts the performance fee, and
      *         re-locks the remainder into each veMEZO position.
+     *
+     * @dev    Enforces `minCompoundInterval` between calls to prevent a compromised
+     *         keeper from spamming this function. For very large vaults, prefer
+     *         `compoundBatch()` to avoid block gas-limit issues.
+     *
      * @return totalRewards    Sum of all claimed rewards (in MEZO).
      * @return totalFee        Total performance fee deducted (in MEZO).
      * @return totalCompounded Total amount re-locked across all NFTs (in MEZO).
@@ -445,11 +555,62 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         nonReentrant
         returns (uint256 totalRewards, uint256 totalFee, uint256 totalCompounded)
     {
+        // [SEC] Compound cooldown: guard against keeper spam / compromise.
+        if (lastCompoundTime != 0 && block.timestamp < lastCompoundTime + minCompoundInterval) {
+            revert CompoundTooSoon(lastCompoundTime + minCompoundInterval, block.timestamp);
+        }
+
         uint256[] memory tokenIds = getDepositedTokenIds();
         if (tokenIds.length == 0) revert NoDeposits();
 
         uint256 len = tokenIds.length;
         for (uint256 i; i < len;) {
+            (uint256 r, uint256 f, uint256 c) = _compound(tokenIds[i]);
+            unchecked {
+                totalRewards    += r;
+                totalFee        += f;
+                totalCompounded += c;
+                ++i;
+            }
+        }
+
+        totalUnderlying = _calculateTotalUnderlying();
+        vaultToken.updateTotalAssets(totalUnderlying);
+        lastCompoundTime = block.timestamp;
+        emit Compounded(totalRewards, totalFee, totalCompounded);
+    }
+
+    /**
+     * @notice Compound a paginated slice of deposited NFTs (keeper-only).
+     *         Use this for large vaults where `compoundAll()` would exceed the
+     *         block gas limit. Call repeatedly with successive `startIndex` values
+     *         until the entire vault has been processed.
+     *
+     * @dev    Does NOT enforce `minCompoundInterval` — callers are expected to
+     *         call this multiple times per epoch for different slices.
+     *         `lastCompoundTime` is updated on every call so the next
+     *         `compoundAll()` is still gated by the cooldown.
+     *
+     * @param  startIndex  First position in `getDepositedTokenIds()` to process.
+     * @param  batchSize   Maximum number of NFTs to process in this call.
+     * @return totalRewards    Rewards claimed in this batch.
+     * @return totalFee        Fees deducted in this batch.
+     * @return totalCompounded Amount re-locked in this batch.
+     */
+    function compoundBatch(uint256 startIndex, uint256 batchSize)
+        external
+        onlyKeeper
+        whenNotPaused
+        nonReentrant
+        returns (uint256 totalRewards, uint256 totalFee, uint256 totalCompounded)
+    {
+        uint256[] memory tokenIds = getDepositedTokenIds();
+        if (tokenIds.length == 0) revert NoDeposits();
+
+        uint256 endIndex = startIndex + batchSize;
+        if (endIndex > tokenIds.length) endIndex = tokenIds.length;
+
+        for (uint256 i = startIndex; i < endIndex;) {
             (uint256 r, uint256 f, uint256 c) = _compound(tokenIds[i]);
             unchecked {
                 totalRewards    += r;
@@ -491,6 +652,7 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         rewards = rebaseAmount + incentiveAmount;
         if (rewards == 0) return (0, 0, 0);
 
+        // [SEC] Multiply before divide — no precision loss.
         fee       = (rewards * performanceFee) / 10_000;
         compounded = rewards - fee;
 
@@ -565,8 +727,8 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
      *      Must be called before any share balance change (mint or burn).
      */
     function _updateRewardDebt(address user) internal {
-        uint256 userShares    = vaultToken.balanceOf(user);
-        userRewardDebt[user]  = (userShares * feePerShare) / PRECISION;
+        uint256 userShares   = vaultToken.balanceOf(user);
+        userRewardDebt[user] = (userShares * feePerShare) / PRECISION;
     }
 
     /**
@@ -606,8 +768,19 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     }
 
     /**
+     * @notice Returns the unlock timestamp for a deposited NFT.
+     * @param  tokenId  The tokenId to query.
+     * @return          Unix timestamp after which the NFT may be withdrawn.
+     *                  Returns 0 if the tokenId is not deposited.
+     */
+    function depositUnlockTime(uint256 tokenId) external view returns (uint256) {
+        if (depositedAt[tokenId] == 0) return 0;
+        return depositedAt[tokenId] + minDepositDuration;
+    }
+
+    /**
      * @notice Returns the total pending gauge incentives claimable across all deposited NFTs.
-     * @dev    This is an approximation — actual claimable amounts may differ at execution time.
+     * @dev    Approximate — actual claimable amounts may differ at execution time.
      */
     function getPendingRewards() public view returns (uint256 totalPending) {
         uint256[] memory tokenIds = getDepositedTokenIds();
@@ -624,6 +797,10 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
      * @return canCompound  True if pending rewards cover gas cost with a 10% margin.
      */
     function checkUpkeep(uint256 gasPrice) public view returns (bool canCompound) {
+        // Respect the compound cooldown in the off-chain check too.
+        if (lastCompoundTime != 0 && block.timestamp < lastCompoundTime + minCompoundInterval) {
+            return false;
+        }
         uint256 pending = getPendingRewards();
         if (pending == 0) return false;
         uint256 estimatedGas = 300_000 + (getDepositedTokenCount() * 200_000);
@@ -649,7 +826,8 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
 
     /**
      * @dev Find the user's deposited NFT whose value is closest to the asset value
-     *      implied by `shares`.  Returns tokenId 0 when the user has no deposits.
+     *      implied by `shares`, skipping any NFT still within its deposit lock period.
+     *      Returns tokenId 0 when no eligible NFT exists.
      */
     function _findWithdrawableNFT(address user, uint256 shares)
         internal
@@ -661,11 +839,17 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         uint256[] memory tokens = getUserTokenIds(user);
         uint256 len = tokens.length;
         for (uint256 i; i < len;) {
-            uint256 v    = veMEZO.balanceOfNFT(tokens[i]);
+            uint256 tid = tokens[i];
+            // [SEC] Skip NFTs still within the deposit lock period.
+            if (block.timestamp < depositedAt[tid] + minDepositDuration) {
+                unchecked { ++i; }
+                continue;
+            }
+            uint256 v    = veMEZO.balanceOfNFT(tid);
             uint256 diff = v > targetValue ? v - targetValue : targetValue - v;
             if (diff < bestDiff) {
                 bestDiff = diff;
-                bestId   = tokens[i];
+                bestId   = tid;
             }
             unchecked { ++i; }
         }
@@ -674,6 +858,12 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     /**
      * @dev Swap `feeAmountMezo` of MEZO to MUSD via Tigris, then split the output
      *      between the vveMEZO holder reward pool and the treasury.
+     *
+     *      Slippage protection: minimum MUSD out is derived from the router's quoted
+     *      price minus `swapSlippageBps`, e.g. 100 bps = 1% maximum deviation.
+     *      The router quote is an AMM spot price; `swapSlippageBps` must be set
+     *      conservatively to account for sandwich-attack risk.
+     *
      * @param  feeAmountMezo  MEZO amount to swap.
      * @return musdAmount     MUSD received from the swap.
      */
@@ -724,17 +914,19 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     }
 
     /**
-     * @dev Compute the minimum acceptable MUSD output for a MEZO → MUSD swap,
-     *      applying a 1% slippage tolerance.
+     * @dev Compute the minimum acceptable MUSD output for a MEZO → MUSD swap
+     *      using the configurable `swapSlippageBps` tolerance.
+     *      E.g. swapSlippageBps = 100 → accept up to 1% deviation from quoted price.
      */
     function _minMusdOut(uint256 mezoIn, address[] memory path)
         internal
         view
         returns (uint256)
     {
-        uint256[] memory quote = tigrisRouter.getAmountsOut(mezoIn, path);
-        uint256 expected = quote[quote.length - 1];
-        return (expected * 99) / 100;
+        uint256[] memory quote   = tigrisRouter.getAmountsOut(mezoIn, path);
+        uint256          expected = quote[quote.length - 1];
+        // [SEC] Multiply before divide to preserve precision.
+        return (expected * (10_000 - swapSlippageBps)) / 10_000;
     }
 
     // ── Gauge voting ─────────────────────────────────────────────────────────
@@ -793,16 +985,54 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         return gaugeVotes;
     }
 
-    // ── Admin ────────────────────────────────────────────────────────────────
+    // ── Admin — keeper management ────────────────────────────────────────────
 
     /**
-     * @notice Update the keeper address.
-     * @param  newKeeper  New authorised keeper (EOA or Defender Relayer).
+     * @notice Replace the primary keeper with a new address.
+     *         The old keeper is removed from the authorised registry; the new
+     *         keeper is added. Use `addKeeper`/`removeKeeper` to manage
+     *         additional keepers independently.
+     * @param  newKeeper  New authorised keeper (EOA, Defender Relayer, etc.).
      */
     function updateKeeper(address newKeeper) external onlyOwner validAddress(newKeeper) {
-        emit KeeperUpdated(keeper, newKeeper);
+        if (authorizedKeepers[newKeeper]) revert KeeperAlreadyAuthorized(newKeeper);
+
+        address old = keeper;
+        authorizedKeepers[old]      = false;
+        authorizedKeepers[newKeeper] = true;
         keeper = newKeeper;
+
+        emit KeeperUpdated(old, newKeeper);
+        emit KeeperRemoved(old);
+        emit KeeperAdded(newKeeper);
     }
+
+    /**
+     * @notice Authorise an additional keeper without replacing the primary one.
+     *         Supports multi-keeper architectures (e.g. Gelato + Chainlink + EOA).
+     * @param  newKeeper  Address to add to the authorised keeper registry.
+     */
+    function addKeeper(address newKeeper) external onlyOwner validAddress(newKeeper) {
+        if (authorizedKeepers[newKeeper]) revert KeeperAlreadyAuthorized(newKeeper);
+        authorizedKeepers[newKeeper] = true;
+        emit KeeperAdded(newKeeper);
+    }
+
+    /**
+     * @notice Remove a keeper from the authorised registry.
+     * @dev    If the removed keeper is the primary `keeper`, the primary keeper
+     *         field is cleared (set to address(0)). Owner should call `addKeeper`
+     *         or `updateKeeper` to assign a new primary.
+     * @param  keeperToRemove  Address to remove.
+     */
+    function removeKeeper(address keeperToRemove) external onlyOwner {
+        if (!authorizedKeepers[keeperToRemove]) revert KeeperNotAuthorized(keeperToRemove);
+        authorizedKeepers[keeperToRemove] = false;
+        if (keeper == keeperToRemove) keeper = address(0);
+        emit KeeperRemoved(keeperToRemove);
+    }
+
+    // ── Admin — vault parameters ─────────────────────────────────────────────
 
     /**
      * @notice Update the performance fee.
@@ -844,6 +1074,47 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     }
 
     /**
+     * @notice Update the minimum time an NFT must remain deposited before withdrawal.
+     * @dev    Bounded to [0, MAX_DEPOSIT_DURATION] to prevent governance from
+     *         locking funds indefinitely.
+     * @param  newDuration  New duration in seconds (0 to disable lock, max 30 days).
+     */
+    function setMinDepositDuration(uint256 newDuration) external onlyOwner {
+        if (newDuration > MAX_DEPOSIT_DURATION) {
+            revert InvalidDuration(newDuration, 0, MAX_DEPOSIT_DURATION);
+        }
+        emit MinDepositDurationUpdated(minDepositDuration, newDuration);
+        minDepositDuration = newDuration;
+    }
+
+    /**
+     * @notice Update the minimum interval between successive compound calls.
+     * @dev    Bounded to [0, MAX_COMPOUND_INTERVAL]. Set to 0 to disable.
+     * @param  newInterval  New interval in seconds (max 7 days).
+     */
+    function setMinCompoundInterval(uint256 newInterval) external onlyOwner {
+        if (newInterval > MAX_COMPOUND_INTERVAL) {
+            revert InvalidDuration(newInterval, 0, MAX_COMPOUND_INTERVAL);
+        }
+        emit MinCompoundIntervalUpdated(minCompoundInterval, newInterval);
+        minCompoundInterval = newInterval;
+    }
+
+    /**
+     * @notice Update the slippage tolerance for MEZO → MUSD swaps.
+     * @dev    Bounded to [MIN_SLIPPAGE_BPS, MAX_SLIPPAGE_BPS].
+     *         Lower values reduce MEV surface but may cause swap failures.
+     * @param  newBps  Slippage in basis points (e.g. 100 = 1%).
+     */
+    function setSwapSlippage(uint256 newBps) external onlyOwner {
+        if (newBps < MIN_SLIPPAGE_BPS || newBps > MAX_SLIPPAGE_BPS) {
+            revert InvalidSlippage(newBps, MIN_SLIPPAGE_BPS, MAX_SLIPPAGE_BPS);
+        }
+        emit SwapSlippageUpdated(swapSlippageBps, newBps);
+        swapSlippageBps = newBps;
+    }
+
+    /**
      * @notice Toggle automatic max-lock extension on each compound.
      * @param  enabled  True to extend every NFT's lock to MAX_LOCK_DURATION each epoch.
      */
@@ -854,10 +1125,14 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
 
     /**
      * @notice Configure the MUSD auto-stake behaviour.
+     * @dev    When `enabled` is true, `savingsVault` must be non-zero — otherwise
+     *         the treasury leg of fee distribution would silently have no target.
      * @param  enabled       True to swap fees to MUSD and stake treasury portion.
-     * @param  savingsVault  MUSD Savings Vault address (address(0) to send raw MUSD).
+     * @param  savingsVault  MUSD Savings Vault address (address(0) sends raw MUSD to treasury).
      */
     function setAutoStakeMUSD(bool enabled, address savingsVault) external onlyOwner {
+        // [SEC] Guard against enabled=true with zero vault address.
+        if (enabled && savingsVault == address(0)) revert InvalidAddress();
         autoStakeMUSD    = enabled;
         musdSavingsVault = savingsVault;
         emit AutoStakeMUSDUpdated(enabled, savingsVault);
@@ -871,7 +1146,8 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
 
     /**
      * @notice Emergency withdrawal of a specific NFT to an arbitrary address.
-     * @dev    Owner-only. Useful when a user is unable to withdraw normally.
+     * @dev    Owner-only. Bypasses the deposit lock period — intended only for
+     *         genuine recovery scenarios (e.g. user lost wallet access).
      *         Burns the depositor's corresponding shares.
      * @param  tokenId  The deposited NFT to recover.
      * @param  to       Recipient address.
@@ -879,6 +1155,7 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
     function emergencyWithdraw(uint256 tokenId, address to)
         external
         onlyOwner
+        nonReentrant          // [SEC] Added: guards against reentrancy on external NFT transfer.
         validAddress(to)
     {
         if (nftOwner[tokenId] == address(0)) revert TokenNotDeposited(tokenId);
@@ -886,7 +1163,9 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         address user     = nftOwner[tokenId];
         uint256 nftValue = veMEZO.balanceOfNFT(tokenId);
 
+        // ── Effects ──────────────────────────────────────────────────────────
         delete nftOwner[tokenId];
+        delete depositedAt[tokenId];
         _userTokenIds[user].remove(tokenId);
         _depositedTokenIds.remove(tokenId);
         totalUnderlying -= nftValue;
@@ -895,12 +1174,16 @@ contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard,
         vaultToken.burnShares(user, shares);
 
         emit EmergencyWithdrawal(user, tokenId);
+
+        // ── Interactions ─────────────────────────────────────────────────────
         veMEZO.safeTransferFrom(address(this), to, tokenId);
     }
 
     /**
      * @dev Accept veMEZO NFT transfers.
      *      Only the veMEZO contract may send NFTs to this vault.
+     *      The `nonReentrant` guard is on the calling `deposit` / `depositBatch`
+     *      functions, so the callback itself does not re-enter the vault.
      */
     function onERC721Received(address, address, uint256, bytes calldata)
         external

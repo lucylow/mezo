@@ -35,19 +35,28 @@ export declare namespace VeMEZOAutoCompounder {
 export interface VeMEZOAutoCompounderInterface extends Interface {
   getFunction(
     nameOrSignature:
+      | "MAX_COMPOUND_INTERVAL"
+      | "MAX_DEPOSIT_DURATION"
       | "MAX_FEE_DISTRIBUTION_RATE"
       | "MAX_LOCK_DURATION"
       | "MAX_PERFORMANCE_FEE"
+      | "MAX_SLIPPAGE_BPS"
       | "MIN_PERFORMANCE_FEE"
+      | "MIN_SLIPPAGE_BPS"
       | "acceptOwnership"
+      | "addKeeper"
+      | "authorizedKeepers"
       | "autoMaxLock"
       | "autoStakeMUSD"
       | "calculateTotalUnderlying"
       | "checkUpkeep"
       | "claimFeeRewards"
       | "compoundAll"
+      | "compoundBatch"
       | "deposit"
       | "depositBatch"
+      | "depositUnlockTime"
+      | "depositedAt"
       | "emergencyWithdraw"
       | "feeDistributionRate"
       | "feePerShare"
@@ -64,6 +73,8 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
       | "lastCompoundTime"
       | "lastVoteTime"
       | "mezoToken"
+      | "minCompoundInterval"
+      | "minDepositDuration"
       | "minDepositValue"
       | "musdSavingsVault"
       | "musdToken"
@@ -75,14 +86,19 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
       | "pendingFeeRewards"
       | "pendingOwner"
       | "performanceFee"
+      | "removeKeeper"
       | "renounceOwnership"
       | "setAutoMaxLock"
       | "setAutoStakeMUSD"
       | "setFeeDistributionRate"
       | "setGaugeVotes"
+      | "setMinCompoundInterval"
+      | "setMinDepositDuration"
       | "setMinDepositValue"
       | "setPerformanceFee"
+      | "setSwapSlippage"
       | "setTreasury"
+      | "swapSlippageBps"
       | "tigrisRouter"
       | "totalFeesCollectedMusd"
       | "totalUnderlying"
@@ -110,19 +126,32 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
       | "FeeDistributionRateUpdated"
       | "GaugeVotesSet"
       | "GaugesVoted"
+      | "KeeperAdded"
+      | "KeeperRemoved"
       | "KeeperUpdated"
+      | "MinCompoundIntervalUpdated"
+      | "MinDepositDurationUpdated"
       | "MinDepositValueUpdated"
       | "OwnershipTransferStarted"
       | "OwnershipTransferred"
       | "Paused"
       | "PerformanceFeeUpdated"
       | "RewardsClaimed"
+      | "SwapSlippageUpdated"
       | "TreasuryStaked"
       | "TreasuryUpdated"
       | "Unpaused"
       | "Withdrawn"
   ): EventFragment;
 
+  encodeFunctionData(
+    functionFragment: "MAX_COMPOUND_INTERVAL",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "MAX_DEPOSIT_DURATION",
+    values?: undefined
+  ): string;
   encodeFunctionData(
     functionFragment: "MAX_FEE_DISTRIBUTION_RATE",
     values?: undefined
@@ -136,12 +165,28 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "MAX_SLIPPAGE_BPS",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "MIN_PERFORMANCE_FEE",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "MIN_SLIPPAGE_BPS",
     values?: undefined
   ): string;
   encodeFunctionData(
     functionFragment: "acceptOwnership",
     values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "addKeeper",
+    values: [AddressLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "authorizedKeepers",
+    values: [AddressLike]
   ): string;
   encodeFunctionData(
     functionFragment: "autoMaxLock",
@@ -168,12 +213,24 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "compoundBatch",
+    values: [BigNumberish, BigNumberish]
+  ): string;
+  encodeFunctionData(
     functionFragment: "deposit",
     values: [BigNumberish]
   ): string;
   encodeFunctionData(
     functionFragment: "depositBatch",
     values: [BigNumberish[]]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "depositUnlockTime",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "depositedAt",
+    values: [BigNumberish]
   ): string;
   encodeFunctionData(
     functionFragment: "emergencyWithdraw",
@@ -231,6 +288,14 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
   ): string;
   encodeFunctionData(functionFragment: "mezoToken", values?: undefined): string;
   encodeFunctionData(
+    functionFragment: "minCompoundInterval",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "minDepositDuration",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "minDepositValue",
     values?: undefined
   ): string;
@@ -263,6 +328,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "removeKeeper",
+    values: [AddressLike]
+  ): string;
+  encodeFunctionData(
     functionFragment: "renounceOwnership",
     values?: undefined
   ): string;
@@ -283,6 +352,14 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     values: [VeMEZOAutoCompounder.GaugeVoteStruct[]]
   ): string;
   encodeFunctionData(
+    functionFragment: "setMinCompoundInterval",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "setMinDepositDuration",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
     functionFragment: "setMinDepositValue",
     values: [BigNumberish]
   ): string;
@@ -291,8 +368,16 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     values: [BigNumberish]
   ): string;
   encodeFunctionData(
+    functionFragment: "setSwapSlippage",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
     functionFragment: "setTreasury",
     values: [AddressLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "swapSlippageBps",
+    values?: undefined
   ): string;
   encodeFunctionData(
     functionFragment: "tigrisRouter",
@@ -339,6 +424,14 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
   ): string;
 
   decodeFunctionResult(
+    functionFragment: "MAX_COMPOUND_INTERVAL",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "MAX_DEPOSIT_DURATION",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "MAX_FEE_DISTRIBUTION_RATE",
     data: BytesLike
   ): Result;
@@ -351,11 +444,24 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "MAX_SLIPPAGE_BPS",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "MIN_PERFORMANCE_FEE",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "MIN_SLIPPAGE_BPS",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "acceptOwnership",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(functionFragment: "addKeeper", data: BytesLike): Result;
+  decodeFunctionResult(
+    functionFragment: "authorizedKeepers",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -382,9 +488,21 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     functionFragment: "compoundAll",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(
+    functionFragment: "compoundBatch",
+    data: BytesLike
+  ): Result;
   decodeFunctionResult(functionFragment: "deposit", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "depositBatch",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "depositUnlockTime",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "depositedAt",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -440,6 +558,14 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
   ): Result;
   decodeFunctionResult(functionFragment: "mezoToken", data: BytesLike): Result;
   decodeFunctionResult(
+    functionFragment: "minCompoundInterval",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "minDepositDuration",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "minDepositValue",
     data: BytesLike
   ): Result;
@@ -469,6 +595,10 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "removeKeeper",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "renounceOwnership",
     data: BytesLike
   ): Result;
@@ -489,6 +619,14 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "setMinCompoundInterval",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "setMinDepositDuration",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "setMinDepositValue",
     data: BytesLike
   ): Result;
@@ -497,7 +635,15 @@ export interface VeMEZOAutoCompounderInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "setSwapSlippage",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "setTreasury",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "swapSlippageBps",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -717,12 +863,68 @@ export namespace GaugesVotedEvent {
   export type LogDescription = TypedLogDescription<Event>;
 }
 
+export namespace KeeperAddedEvent {
+  export type InputTuple = [keeper: AddressLike];
+  export type OutputTuple = [keeper: string];
+  export interface OutputObject {
+    keeper: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace KeeperRemovedEvent {
+  export type InputTuple = [keeper: AddressLike];
+  export type OutputTuple = [keeper: string];
+  export interface OutputObject {
+    keeper: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
 export namespace KeeperUpdatedEvent {
   export type InputTuple = [oldKeeper: AddressLike, newKeeper: AddressLike];
   export type OutputTuple = [oldKeeper: string, newKeeper: string];
   export interface OutputObject {
     oldKeeper: string;
     newKeeper: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace MinCompoundIntervalUpdatedEvent {
+  export type InputTuple = [
+    oldInterval: BigNumberish,
+    newInterval: BigNumberish
+  ];
+  export type OutputTuple = [oldInterval: bigint, newInterval: bigint];
+  export interface OutputObject {
+    oldInterval: bigint;
+    newInterval: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace MinDepositDurationUpdatedEvent {
+  export type InputTuple = [
+    oldDuration: BigNumberish,
+    newDuration: BigNumberish
+  ];
+  export type OutputTuple = [oldDuration: bigint, newDuration: bigint];
+  export interface OutputObject {
+    oldDuration: bigint;
+    newDuration: bigint;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -800,6 +1002,19 @@ export namespace RewardsClaimedEvent {
   export interface OutputObject {
     user: string;
     amount: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace SwapSlippageUpdatedEvent {
+  export type InputTuple = [oldBps: BigNumberish, newBps: BigNumberish];
+  export type OutputTuple = [oldBps: bigint, newBps: bigint];
+  export interface OutputObject {
+    oldBps: bigint;
+    newBps: bigint;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -916,15 +1131,35 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     event?: TCEvent
   ): Promise<this>;
 
+  MAX_COMPOUND_INTERVAL: TypedContractMethod<[], [bigint], "view">;
+
+  MAX_DEPOSIT_DURATION: TypedContractMethod<[], [bigint], "view">;
+
   MAX_FEE_DISTRIBUTION_RATE: TypedContractMethod<[], [bigint], "view">;
 
   MAX_LOCK_DURATION: TypedContractMethod<[], [bigint], "view">;
 
   MAX_PERFORMANCE_FEE: TypedContractMethod<[], [bigint], "view">;
 
+  MAX_SLIPPAGE_BPS: TypedContractMethod<[], [bigint], "view">;
+
   MIN_PERFORMANCE_FEE: TypedContractMethod<[], [bigint], "view">;
 
+  MIN_SLIPPAGE_BPS: TypedContractMethod<[], [bigint], "view">;
+
   acceptOwnership: TypedContractMethod<[], [void], "nonpayable">;
+
+  addKeeper: TypedContractMethod<
+    [newKeeper: AddressLike],
+    [void],
+    "nonpayable"
+  >;
+
+  authorizedKeepers: TypedContractMethod<
+    [arg0: AddressLike],
+    [boolean],
+    "view"
+  >;
 
   autoMaxLock: TypedContractMethod<[], [boolean], "view">;
 
@@ -948,6 +1183,18 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     "nonpayable"
   >;
 
+  compoundBatch: TypedContractMethod<
+    [startIndex: BigNumberish, batchSize: BigNumberish],
+    [
+      [bigint, bigint, bigint] & {
+        totalRewards: bigint;
+        totalFee: bigint;
+        totalCompounded: bigint;
+      }
+    ],
+    "nonpayable"
+  >;
+
   deposit: TypedContractMethod<[tokenId: BigNumberish], [bigint], "nonpayable">;
 
   depositBatch: TypedContractMethod<
@@ -955,6 +1202,14 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     [bigint],
     "nonpayable"
   >;
+
+  depositUnlockTime: TypedContractMethod<
+    [tokenId: BigNumberish],
+    [bigint],
+    "view"
+  >;
+
+  depositedAt: TypedContractMethod<[arg0: BigNumberish], [bigint], "view">;
 
   emergencyWithdraw: TypedContractMethod<
     [tokenId: BigNumberish, to: AddressLike],
@@ -1000,6 +1255,10 @@ export interface VeMEZOAutoCompounder extends BaseContract {
 
   mezoToken: TypedContractMethod<[], [string], "view">;
 
+  minCompoundInterval: TypedContractMethod<[], [bigint], "view">;
+
+  minDepositDuration: TypedContractMethod<[], [bigint], "view">;
+
   minDepositValue: TypedContractMethod<[], [bigint], "view">;
 
   musdSavingsVault: TypedContractMethod<[], [string], "view">;
@@ -1026,6 +1285,12 @@ export interface VeMEZOAutoCompounder extends BaseContract {
 
   performanceFee: TypedContractMethod<[], [bigint], "view">;
 
+  removeKeeper: TypedContractMethod<
+    [keeperToRemove: AddressLike],
+    [void],
+    "nonpayable"
+  >;
+
   renounceOwnership: TypedContractMethod<[], [void], "nonpayable">;
 
   setAutoMaxLock: TypedContractMethod<[enabled: boolean], [void], "nonpayable">;
@@ -1048,6 +1313,18 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     "nonpayable"
   >;
 
+  setMinCompoundInterval: TypedContractMethod<
+    [newInterval: BigNumberish],
+    [void],
+    "nonpayable"
+  >;
+
+  setMinDepositDuration: TypedContractMethod<
+    [newDuration: BigNumberish],
+    [void],
+    "nonpayable"
+  >;
+
   setMinDepositValue: TypedContractMethod<
     [newMin: BigNumberish],
     [void],
@@ -1060,11 +1337,19 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     "nonpayable"
   >;
 
+  setSwapSlippage: TypedContractMethod<
+    [newBps: BigNumberish],
+    [void],
+    "nonpayable"
+  >;
+
   setTreasury: TypedContractMethod<
     [newTreasury: AddressLike],
     [void],
     "nonpayable"
   >;
+
+  swapSlippageBps: TypedContractMethod<[], [bigint], "view">;
 
   tigrisRouter: TypedContractMethod<[], [string], "view">;
 
@@ -1113,6 +1398,12 @@ export interface VeMEZOAutoCompounder extends BaseContract {
   ): T;
 
   getFunction(
+    nameOrSignature: "MAX_COMPOUND_INTERVAL"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "MAX_DEPOSIT_DURATION"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
     nameOrSignature: "MAX_FEE_DISTRIBUTION_RATE"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
@@ -1122,11 +1413,23 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     nameOrSignature: "MAX_PERFORMANCE_FEE"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
+    nameOrSignature: "MAX_SLIPPAGE_BPS"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
     nameOrSignature: "MIN_PERFORMANCE_FEE"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "MIN_SLIPPAGE_BPS"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "acceptOwnership"
   ): TypedContractMethod<[], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "addKeeper"
+  ): TypedContractMethod<[newKeeper: AddressLike], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "authorizedKeepers"
+  ): TypedContractMethod<[arg0: AddressLike], [boolean], "view">;
   getFunction(
     nameOrSignature: "autoMaxLock"
   ): TypedContractMethod<[], [boolean], "view">;
@@ -1156,11 +1459,30 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     "nonpayable"
   >;
   getFunction(
+    nameOrSignature: "compoundBatch"
+  ): TypedContractMethod<
+    [startIndex: BigNumberish, batchSize: BigNumberish],
+    [
+      [bigint, bigint, bigint] & {
+        totalRewards: bigint;
+        totalFee: bigint;
+        totalCompounded: bigint;
+      }
+    ],
+    "nonpayable"
+  >;
+  getFunction(
     nameOrSignature: "deposit"
   ): TypedContractMethod<[tokenId: BigNumberish], [bigint], "nonpayable">;
   getFunction(
     nameOrSignature: "depositBatch"
   ): TypedContractMethod<[tokenIds: BigNumberish[]], [bigint], "nonpayable">;
+  getFunction(
+    nameOrSignature: "depositUnlockTime"
+  ): TypedContractMethod<[tokenId: BigNumberish], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "depositedAt"
+  ): TypedContractMethod<[arg0: BigNumberish], [bigint], "view">;
   getFunction(
     nameOrSignature: "emergencyWithdraw"
   ): TypedContractMethod<
@@ -1222,6 +1544,12 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     nameOrSignature: "mezoToken"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
+    nameOrSignature: "minCompoundInterval"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "minDepositDuration"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
     nameOrSignature: "minDepositValue"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
@@ -1259,6 +1587,9 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     nameOrSignature: "performanceFee"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
+    nameOrSignature: "removeKeeper"
+  ): TypedContractMethod<[keeperToRemove: AddressLike], [void], "nonpayable">;
+  getFunction(
     nameOrSignature: "renounceOwnership"
   ): TypedContractMethod<[], [void], "nonpayable">;
   getFunction(
@@ -1282,14 +1613,26 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     "nonpayable"
   >;
   getFunction(
+    nameOrSignature: "setMinCompoundInterval"
+  ): TypedContractMethod<[newInterval: BigNumberish], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "setMinDepositDuration"
+  ): TypedContractMethod<[newDuration: BigNumberish], [void], "nonpayable">;
+  getFunction(
     nameOrSignature: "setMinDepositValue"
   ): TypedContractMethod<[newMin: BigNumberish], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "setPerformanceFee"
   ): TypedContractMethod<[newFee: BigNumberish], [void], "nonpayable">;
   getFunction(
+    nameOrSignature: "setSwapSlippage"
+  ): TypedContractMethod<[newBps: BigNumberish], [void], "nonpayable">;
+  getFunction(
     nameOrSignature: "setTreasury"
   ): TypedContractMethod<[newTreasury: AddressLike], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "swapSlippageBps"
+  ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "tigrisRouter"
   ): TypedContractMethod<[], [string], "view">;
@@ -1401,11 +1744,39 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     GaugesVotedEvent.OutputObject
   >;
   getEvent(
+    key: "KeeperAdded"
+  ): TypedContractEvent<
+    KeeperAddedEvent.InputTuple,
+    KeeperAddedEvent.OutputTuple,
+    KeeperAddedEvent.OutputObject
+  >;
+  getEvent(
+    key: "KeeperRemoved"
+  ): TypedContractEvent<
+    KeeperRemovedEvent.InputTuple,
+    KeeperRemovedEvent.OutputTuple,
+    KeeperRemovedEvent.OutputObject
+  >;
+  getEvent(
     key: "KeeperUpdated"
   ): TypedContractEvent<
     KeeperUpdatedEvent.InputTuple,
     KeeperUpdatedEvent.OutputTuple,
     KeeperUpdatedEvent.OutputObject
+  >;
+  getEvent(
+    key: "MinCompoundIntervalUpdated"
+  ): TypedContractEvent<
+    MinCompoundIntervalUpdatedEvent.InputTuple,
+    MinCompoundIntervalUpdatedEvent.OutputTuple,
+    MinCompoundIntervalUpdatedEvent.OutputObject
+  >;
+  getEvent(
+    key: "MinDepositDurationUpdated"
+  ): TypedContractEvent<
+    MinDepositDurationUpdatedEvent.InputTuple,
+    MinDepositDurationUpdatedEvent.OutputTuple,
+    MinDepositDurationUpdatedEvent.OutputObject
   >;
   getEvent(
     key: "MinDepositValueUpdated"
@@ -1448,6 +1819,13 @@ export interface VeMEZOAutoCompounder extends BaseContract {
     RewardsClaimedEvent.InputTuple,
     RewardsClaimedEvent.OutputTuple,
     RewardsClaimedEvent.OutputObject
+  >;
+  getEvent(
+    key: "SwapSlippageUpdated"
+  ): TypedContractEvent<
+    SwapSlippageUpdatedEvent.InputTuple,
+    SwapSlippageUpdatedEvent.OutputTuple,
+    SwapSlippageUpdatedEvent.OutputObject
   >;
   getEvent(
     key: "TreasuryStaked"
@@ -1589,6 +1967,28 @@ export interface VeMEZOAutoCompounder extends BaseContract {
       GaugesVotedEvent.OutputObject
     >;
 
+    "KeeperAdded(address)": TypedContractEvent<
+      KeeperAddedEvent.InputTuple,
+      KeeperAddedEvent.OutputTuple,
+      KeeperAddedEvent.OutputObject
+    >;
+    KeeperAdded: TypedContractEvent<
+      KeeperAddedEvent.InputTuple,
+      KeeperAddedEvent.OutputTuple,
+      KeeperAddedEvent.OutputObject
+    >;
+
+    "KeeperRemoved(address)": TypedContractEvent<
+      KeeperRemovedEvent.InputTuple,
+      KeeperRemovedEvent.OutputTuple,
+      KeeperRemovedEvent.OutputObject
+    >;
+    KeeperRemoved: TypedContractEvent<
+      KeeperRemovedEvent.InputTuple,
+      KeeperRemovedEvent.OutputTuple,
+      KeeperRemovedEvent.OutputObject
+    >;
+
     "KeeperUpdated(address,address)": TypedContractEvent<
       KeeperUpdatedEvent.InputTuple,
       KeeperUpdatedEvent.OutputTuple,
@@ -1598,6 +1998,28 @@ export interface VeMEZOAutoCompounder extends BaseContract {
       KeeperUpdatedEvent.InputTuple,
       KeeperUpdatedEvent.OutputTuple,
       KeeperUpdatedEvent.OutputObject
+    >;
+
+    "MinCompoundIntervalUpdated(uint256,uint256)": TypedContractEvent<
+      MinCompoundIntervalUpdatedEvent.InputTuple,
+      MinCompoundIntervalUpdatedEvent.OutputTuple,
+      MinCompoundIntervalUpdatedEvent.OutputObject
+    >;
+    MinCompoundIntervalUpdated: TypedContractEvent<
+      MinCompoundIntervalUpdatedEvent.InputTuple,
+      MinCompoundIntervalUpdatedEvent.OutputTuple,
+      MinCompoundIntervalUpdatedEvent.OutputObject
+    >;
+
+    "MinDepositDurationUpdated(uint256,uint256)": TypedContractEvent<
+      MinDepositDurationUpdatedEvent.InputTuple,
+      MinDepositDurationUpdatedEvent.OutputTuple,
+      MinDepositDurationUpdatedEvent.OutputObject
+    >;
+    MinDepositDurationUpdated: TypedContractEvent<
+      MinDepositDurationUpdatedEvent.InputTuple,
+      MinDepositDurationUpdatedEvent.OutputTuple,
+      MinDepositDurationUpdatedEvent.OutputObject
     >;
 
     "MinDepositValueUpdated(uint256,uint256)": TypedContractEvent<
@@ -1664,6 +2086,17 @@ export interface VeMEZOAutoCompounder extends BaseContract {
       RewardsClaimedEvent.InputTuple,
       RewardsClaimedEvent.OutputTuple,
       RewardsClaimedEvent.OutputObject
+    >;
+
+    "SwapSlippageUpdated(uint256,uint256)": TypedContractEvent<
+      SwapSlippageUpdatedEvent.InputTuple,
+      SwapSlippageUpdatedEvent.OutputTuple,
+      SwapSlippageUpdatedEvent.OutputObject
+    >;
+    SwapSlippageUpdated: TypedContractEvent<
+      SwapSlippageUpdatedEvent.InputTuple,
+      SwapSlippageUpdatedEvent.OutputTuple,
+      SwapSlippageUpdatedEvent.OutputObject
     >;
 
     "TreasuryStaked(uint256,uint256)": TypedContractEvent<

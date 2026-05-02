@@ -32,9 +32,18 @@ const VAULT_ABI = [
   "event Compounded(uint256 totalRewards, uint256 fee, uint256 amountCompounded)",
   "event GaugesVoted(uint256 indexed epochTimestamp, uint256 tokenCount, uint256 gaugeCount)",
   "event RewardsClaimed(address indexed user, uint256 amount)",
+  // Multi-keeper events (HIGH severity — any keeper change should trigger immediate review)
   "event KeeperUpdated(address indexed oldKeeper, address indexed newKeeper)",
+  "event KeeperAdded(address indexed keeper)",
+  "event KeeperRemoved(address indexed keeper)",
+  // Pause/unpause
   "event Paused(address account)",
   "event Unpaused(address account)",
+  // Security config changes (MEDIUM severity)
+  "event MinDepositDurationUpdated(uint256 oldDuration, uint256 newDuration)",
+  "event MinCompoundIntervalUpdated(uint256 oldInterval, uint256 newInterval)",
+  "event SwapSlippageUpdated(uint256 oldBps, uint256 newBps)",
+  "event PerformanceFeeUpdated(uint256 oldFee, uint256 newFee)",
 ];
 
 // Reconnection config
@@ -111,16 +120,54 @@ export async function startWatcher(log: winston.Logger): Promise<void> {
       });
 
       // ── Security / admin events ─────────────────────────────────────────
+      // [HIGH] Any keeper change requires immediate human review
       vault.on("KeeperUpdated", (oldKeeper, newKeeper) => {
-        log.warn("[watcher] KeeperUpdated — verify this is expected", { oldKeeper, newKeeper });
+        log.warn("[watcher] HIGH — KeeperUpdated — verify this is expected", { oldKeeper, newKeeper });
+      });
+
+      vault.on("KeeperAdded", (keeper) => {
+        log.warn("[watcher] HIGH — KeeperAdded — new keeper authorised", { keeper });
+      });
+
+      vault.on("KeeperRemoved", (keeper) => {
+        log.warn("[watcher] HIGH — KeeperRemoved — keeper deauthorised", { keeper });
       });
 
       vault.on("Paused", (account) => {
-        log.warn("[watcher] Vault PAUSED", { account });
+        log.warn("[watcher] HIGH — Vault PAUSED", { account });
       });
 
       vault.on("Unpaused", (account) => {
         log.info("[watcher] Vault unpaused", { account });
+      });
+
+      // [MEDIUM] Security parameter changes — log for audit trail
+      vault.on("MinDepositDurationUpdated", (oldDuration, newDuration) => {
+        log.warn("[watcher] MEDIUM — MinDepositDurationUpdated", {
+          oldDuration: oldDuration.toString(),
+          newDuration: newDuration.toString(),
+        });
+      });
+
+      vault.on("MinCompoundIntervalUpdated", (oldInterval, newInterval) => {
+        log.warn("[watcher] MEDIUM — MinCompoundIntervalUpdated", {
+          oldInterval: oldInterval.toString(),
+          newInterval: newInterval.toString(),
+        });
+      });
+
+      vault.on("SwapSlippageUpdated", (oldBps, newBps) => {
+        log.warn("[watcher] MEDIUM — SwapSlippageUpdated", {
+          oldBps: oldBps.toString(),
+          newBps: newBps.toString(),
+        });
+      });
+
+      vault.on("PerformanceFeeUpdated", (oldFee, newFee) => {
+        log.warn("[watcher] MEDIUM — PerformanceFeeUpdated", {
+          oldFee: oldFee.toString(),
+          newFee: newFee.toString(),
+        });
       });
 
       // ── Connection lifecycle ────────────────────────────────────────────

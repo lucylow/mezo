@@ -145,6 +145,55 @@ All endpoints return `{ data, source }` where `source` is `"mock"` when
   - WalletModal shows Mezo Passport branding with Bitcoin wallet guidance.
 - UI: Radix UI (NO headlessui)
 
+## Security Hardening (May 2026 — Session 3)
+
+### VeMEZOAutoCompounder.sol — 7 New Security Features
+
+All features compile cleanly (0 Hardhat errors, 74 typings generated).
+
+1. **Multi-keeper registry** (`mapping(address => bool) public authorizedKeepers`)
+   - Replaces single `keeper` address with a full authorised-keeper registry.
+   - `addKeeper(addr)` / `removeKeeper(addr)` allow independent keepers (Gelato, Chainlink, EOA) to operate simultaneously.
+   - `updateKeeper(new)` atomically rotates the primary keeper: removes old, adds new, emits `KeeperUpdated` + `KeeperAdded` + `KeeperRemoved`.
+   - `onlyKeeper` and `onlyKeeperOrOwner` modifiers check `authorizedKeepers[msg.sender]`.
+   - Deployer auto-registered in constructor.
+
+2. **Deposit lock period** (`minDepositDuration = 7 days`, configurable 0–30 days)
+   - `depositedAt[tokenId]` records deposit timestamp per NFT.
+   - `withdraw(tokenId)` reverts `DepositLocked(tokenId, lockedUntil, current)` if lock hasn't elapsed.
+   - `_findWithdrawableNFT` skips locked NFTs; `withdrawByShares` reverts `NoUnlockedNFT` if all are locked.
+   - `emergencyWithdraw` bypasses the lock (owner-only recovery path).
+   - `depositUnlockTime(tokenId)` view for frontends.
+   - `setMinDepositDuration(newDuration)` — bounded to `MAX_DEPOSIT_DURATION = 30 days`.
+
+3. **Compound cooldown** (`minCompoundInterval = 1 hour`, configurable 0–7 days)
+   - `compoundAll()` reverts `CompoundTooSoon(nextAllowed, current)` if called before cooldown elapses.
+   - `checkUpkeep()` also respects the cooldown for off-chain callers.
+   - `setMinCompoundInterval(interval)` — bounded to `MAX_COMPOUND_INTERVAL = 7 days`.
+
+4. **Paginated compounding** (`compoundBatch(startIndex, batchSize)`)
+   - Allows large vaults to be processed in keeper-sized chunks.
+   - Does not enforce the `minCompoundInterval` (meant for multi-call slicing); updates `lastCompoundTime` on each call so the next `compoundAll()` is still gated.
+
+5. **Configurable swap slippage** (`swapSlippageBps = 100`, bounded 10–500 bps)
+   - `_minMusdOut` uses `swapSlippageBps` instead of the hardcoded `(expected * 99) / 100`.
+   - `setSwapSlippage(bps)` — reverts `InvalidSlippage` if out of [10, 500] range.
+   - Constants: `MIN_SLIPPAGE_BPS = 10`, `MAX_SLIPPAGE_BPS = 500`.
+
+6. **`nonReentrant` on `emergencyWithdraw`**
+   - Added missing reentrancy guard on the owner-callable emergency function that performs an external NFT transfer.
+
+7. **`setAutoStakeMUSD` address validation**
+   - Reverts `InvalidAddress()` if `enabled=true` and `savingsVault=address(0)`, preventing a misconfiguration where fees silently have no target.
+
+### Keeper Bot Updates
+- `VAULT_ABI` in `index.ts`: added `compoundBatch`, `lastCompoundTime`, `minCompoundInterval`, `checkUpkeep`, `depositUnlockTime`, `keeper`, `authorizedKeepers`, `addKeeper`, `removeKeeper`, `KeeperAdded`, `KeeperRemoved`.
+- `watcher.ts`: now watches `KeeperAdded` (HIGH), `KeeperRemoved` (HIGH), `MinDepositDurationUpdated` (MEDIUM), `MinCompoundIntervalUpdated` (MEDIUM), `SwapSlippageUpdated` (MEDIUM), `PerformanceFeeUpdated` (MEDIUM).
+
+### Frontend ABI Updates (`abis/VeMEZOVault.ts`)
+- Added reads: `minDepositDuration`, `depositedAt`, `depositUnlockTime`, `minCompoundInterval`, `swapSlippageBps`, `keeper`, `authorizedKeepers`.
+- Added events: `KeeperAdded`, `KeeperRemoved`, `KeeperUpdated`, `MinDepositDurationUpdated`, `MinCompoundIntervalUpdated`, `SwapSlippageUpdated`.
+
 ## Architecture Improvements (May 2026)
 
 ### Subgraph

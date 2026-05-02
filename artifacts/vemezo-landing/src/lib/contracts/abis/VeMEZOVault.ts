@@ -96,6 +96,59 @@ export const VeMEZOVaultABI = [
     inputs: [],
     outputs: [{ name: "", type: "address" }],
   },
+  // ── Security: deposit lock period ─────────────────────────────────────────
+  {
+    name: "minDepositDuration",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "depositedAt",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "depositUnlockTime",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  // ── Security: compound cooldown ───────────────────────────────────────────
+  {
+    name: "minCompoundInterval",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  // ── Security: configurable slippage ──────────────────────────────────────
+  {
+    name: "swapSlippageBps",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  // ── Security: multi-keeper ────────────────────────────────────────────────
+  {
+    name: "keeper",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    name: "authorizedKeepers",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "addr", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
   // ── Write ─────────────────────────────────────────────────────────────────
   {
     name: "deposit",
@@ -234,6 +287,50 @@ export const VeMEZOVaultABI = [
     inputs: [
       { name: "user",   type: "address", indexed: true },
       { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  // ── Security: multi-keeper events ────────────────────────────────────────
+  {
+    name: "KeeperAdded",
+    type: "event",
+    inputs: [{ name: "keeper", type: "address", indexed: true }],
+  },
+  {
+    name: "KeeperRemoved",
+    type: "event",
+    inputs: [{ name: "keeper", type: "address", indexed: true }],
+  },
+  {
+    name: "KeeperUpdated",
+    type: "event",
+    inputs: [
+      { name: "oldKeeper", type: "address", indexed: true },
+      { name: "newKeeper", type: "address", indexed: true },
+    ],
+  },
+  // ── Security: parameter change events ─────────────────────────────────────
+  {
+    name: "MinDepositDurationUpdated",
+    type: "event",
+    inputs: [
+      { name: "oldDuration", type: "uint256", indexed: false },
+      { name: "newDuration", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    name: "MinCompoundIntervalUpdated",
+    type: "event",
+    inputs: [
+      { name: "oldInterval", type: "uint256", indexed: false },
+      { name: "newInterval", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    name: "SwapSlippageUpdated",
+    type: "event",
+    inputs: [
+      { name: "oldBps", type: "uint256", indexed: false },
+      { name: "newBps", type: "uint256", indexed: false },
     ],
   },
 ] as const;
