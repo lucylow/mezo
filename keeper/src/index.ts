@@ -99,10 +99,10 @@ async function compound(): Promise<void> {
     // ── Execute ─────────────────────────────────────────────────────────────
     logger.info("Executing compoundAll()…");
     const tx      = await vault.compoundAll({ gasPrice: prof.gasPrice });
-    logger.info({ txHash: tx.hash }, "Transaction sent");
+    logger.info("Transaction sent", { txHash: tx.hash });
 
     const receipt = await tx.wait();
-    logger.info({ blockNumber: receipt.blockNumber, gasUsed: receipt.gasUsed.toString() }, "Confirmed");
+    logger.info("Confirmed", { blockNumber: receipt.blockNumber, gasUsed: receipt.gasUsed.toString() });
 
     // Parse the Compounded event from the receipt
     let totalRewards    = 0n;
@@ -120,12 +120,12 @@ async function compound(): Promise<void> {
     }
 
     const performanceFeeBps = await vault.performanceFee();
-    logger.info({
+    logger.info("Compound complete", {
       totalRewards:     ethers.formatEther(totalRewards),
       fee:              ethers.formatEther(fee),
       amountCompounded: ethers.formatEther(amountCompounded),
       feePercent:       `${(Number(performanceFeeBps) / 100).toFixed(1)}%`,
-    }, "Compound complete");
+    });
 
     await notifyCompoundSuccess({
       txHash: tx.hash,
@@ -137,12 +137,12 @@ async function compound(): Promise<void> {
     });
 
     // Run treasury deployment opportunistically after each compound
-    await deployTreasury().catch((e: Error) => logger.warn({ err: e.message }, "Treasury-manager deploy skipped"));
+    await deployTreasury().catch((e: Error) => logger.warn("Treasury-manager deploy skipped", { err: e.message }));
     const treasuryStatus = await runTreasuryDeployment().catch(() => null);
     if (treasuryStatus) logger.info(formatTreasuryStatus(treasuryStatus));
 
   } catch (err: any) {
-    logger.error({ err: err.message }, "Compounding failed");
+    logger.error("Compounding failed", { err: err.message });
     await notifyError(err.message, { vault: VAULT_ADDRESS, rpc: RPC_URL });
   }
 }
@@ -174,10 +174,10 @@ async function recastVotes(): Promise<void> {
       return;
     }
 
-    logger.info({ tokenCount: tokenCount.toString(), gaugeCount: gaugeVotes.length }, "Recasting epoch votes…");
+    logger.info("Recasting epoch votes…", { tokenCount: tokenCount.toString(), gaugeCount: gaugeVotes.length });
     const tx = await vault.voteForGauges({ gasPrice: (await provider.getFeeData()).gasPrice });
     const receipt = await tx.wait();
-    logger.info({ txHash: tx.hash, blockNumber: receipt.blockNumber }, "Epoch votes recast");
+    logger.info("Epoch votes recast", { txHash: tx.hash, blockNumber: receipt.blockNumber });
 
     await notifyCompoundSuccess({
       txHash: tx.hash,
@@ -185,11 +185,11 @@ async function recastVotes(): Promise<void> {
       totalRewards: 0n,
       fee: 0n,
       amountCompounded: 0n,
-      profitability: { canCompound: true, pendingRewards: 0n, gasCost: 0n, gasPrice: 0n, tokenCount: Number(tokenCount), marginBps: 0n },
+      profitability: { canCompound: true, pendingRewards: 0n, estimatedGas: 0n, gasCost: 0n, gasPrice: 0n, tokenCount, netRewards: 0n },
     }).catch(() => {});
 
   } catch (err: any) {
-    logger.warn({ err: err.message }, "Vote recast failed — will retry next epoch");
+    logger.warn("Vote recast failed — will retry next epoch", { err: err.message });
   }
 }
 
@@ -214,7 +214,7 @@ cron.schedule("0 */6 * * *", () => {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
-logger.info({ rpcUrl: RPC_URL, vaultAddress: VAULT_ADDRESS }, "Keeper bot started");
+logger.info("Keeper bot started", { rpcUrl: RPC_URL, vaultAddress: VAULT_ADDRESS });
 compound().catch((e) => logger.error(e));
 
 process.on("SIGINT",  () => { logger.info("Shutting down (SIGINT)");  process.exit(0); });
