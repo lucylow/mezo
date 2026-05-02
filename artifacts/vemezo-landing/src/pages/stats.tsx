@@ -42,8 +42,13 @@ const MOCK_APR_TREND = [
 ];
 
 function formatDay(unixSec: number): string {
-  if (!unixSec) return "";
+  if (!unixSec || unixSec < 1_000_000) return "";
   return new Date(unixSec * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function isValidHistory(data: { date: number; tvl: number }[] | undefined): boolean {
+  if (!data || data.length < 2) return false;
+  return data.some(m => m.date > 1_000_000 && m.tvl > 0);
 }
 
 export default function Stats() {
@@ -51,16 +56,16 @@ export default function Stats() {
   const history = useVaultAPIHistory(30);
 
   const tvlData =
-    history.data && history.data.length > 0
-      ? history.data.map(m => ({
+    isValidHistory(history.data)
+      ? history.data!.map(m => ({
           date: formatDay(m.date),
           tvl:  m.tvl / 1_000_000,
         }))
       : MOCK_TVL_DATA;
 
   const rewardData =
-    history.data && history.data.length > 0
-      ? history.data.slice(-7).map((m, i) => ({
+    isValidHistory(history.data)
+      ? history.data!.slice(-7).map((m, i) => ({
           epoch:      `D${i + 1}`,
           compounded: m.dailyRewards * 0.9,
           fee:        m.dailyRewards * 0.1,
