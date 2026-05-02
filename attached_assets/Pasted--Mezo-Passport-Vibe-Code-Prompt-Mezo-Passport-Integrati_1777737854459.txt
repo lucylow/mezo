@@ -1,0 +1,1117 @@
+ Mezo Passport
+
+# Vibe Code Prompt: Mezo Passport Integration for Auto‑Compounder Vault
+
+**Repository:** `lucylow/mezo`  
+**Target Branch:** `feat/mezo-passport`  
+**Goal:** Implement complete, production‑ready **Mezo Passport** wallet connectivity for the Auto‑Compounder Vault. Mezo Passport is the official wallet‑connection library built on **RainbowKit** that adds native **Bitcoin wallet** support (Xverse, Unisat, OKX) alongside standard **EVM wallets** (MetaMask, WalletConnect). This integration satisfies the hackathon's mandatory **30% Mezo Integration** judging requirement and provides a seamless "login with Bitcoin" experience.
+
+**Context:** The repository currently uses basic wagmi + RainbowKit configuration. This prompt upgrades the entire wallet‑connection layer to Mezo Passport's `getConfig` method, adds Bitcoin‑account hooks (`useBitcoinAccount`, `useSendBitcoin`), implements a custom Mezo‑branded RainbowKit theme, provides robust error handling for wallet connection failures, and supports both BTC and EVM signing/transaction operations.
+
+
+## 1. Architecture Overview
+
+Mezo Passport works by **"masquerading" Bitcoin wallets as EVM‑compatible wallets**. Under the hood, each Bitcoin wallet (Xverse, Unisat, OKX) has a **backing smart account** on the Mezo Matsnet chain. This smart account validates signatures from the Bitcoin wallet and issues EVM transactions on the user's behalf. Signing operations (like authorizing transactions) are routed to the actual Bitcoin wallet, while EVM operations (reading data, interacting with smart contracts) flow through the backing provider. This design lets users connect with a Bitcoin wallet and interact with EVM‑compatible dApps **without switching wallets or providers manually**.
+
+The integration spans five layers:
+
+1. **Configuration Layer** – `getConfig()` from `@mezo-org/passport` wraps RainbowKit's `createDefaultConfig`, adding Bitcoin wallet connectors.
+2. **Provider Layer** – `WagmiProvider` → `QueryClientProvider` → `RainbowKitProvider` wraps the entire app.
+3. **Hook Layer** – Custom React hooks: `useWalletConnection`, `useBitcoinAccount`, `useNetworkStatus`, `useSendBitcoin`.
+4. **Component Layer** – `ConnectButton`, `AccountModal`, `NetworkSwitcher`, `BitcoinBalance`.
+5. **Utility Layer** – Error parsers, address formatters, theme constants.
+
+
+## 2. Installation & Package Dependencies
+
+```bash
+# Core Mezo Passport + RainbowKit stack
+npm install @mezo-org/passport@0.17.2 @rainbow-me/rainbowkit wagmi viem@2.x @tanstack/react-query
+
+# Additional utilities
+npm install clsx tailwind-merge lucide-react sonner zustand
+
+# Dev dependencies
+npm install -D @types/react @types/node
+```
+
+The latest stable version of `@mezo-org/passport` is **0.17.2**. It exports `getConfig`, `mezoTestnet`, `useBitcoinAccount`, `useSendTransaction`, `useSendBitcoin`, and individual wallet connectors like `unisatWallet`, `xverseWallet`, and `okxWallet`.
+
+
+## 3. File Structure After Integration
+
+```
+lucylow/mezo/
+├── lib/
+│   └── wagmi/
+│       ├── config.ts              # getConfig + custom Bitcoin wallets
+│       ├── theme.ts               # Mezo-branded RainbowKit theme
+│       └── chains.ts              # mezoTestnet / mezoMainnet definitions
+├── hooks/
+│   ├── useWalletConnection.ts     # Connection state + actions
+│   ├── useBitcoinAccount.ts       # BTC address + balance
+│   ├── useNetworkStatus.ts        # Network health + switching
+│   └── useBitcoinTransaction.ts   # BTC send + sign
+├── components/
+│   └── wallet/
+│       ├── ConnectButton.tsx       # Styled RainbowKit connect button
+│       ├── AccountModal.tsx        # Account info + disconnect
+│       ├── NetworkSwitcher.tsx     # Chain switcher dropdown
+│       ├── BitcoinBalance.tsx      # BTC balance display
+│       └── WalletErrorBoundary.tsx # Connection error recovery
+├── providers/
+│   └── Web3Provider.tsx            # Wagmi + Query + RainbowKit wrapper
+├── app/
+│   ├── layout.tsx                  # Root layout with Web3Provider
+│   └── globals.css                 # RainbowKit + Tailwind styles
+└── .env.local                      # WalletConnect Project ID
+```
+
+
+## 4. Core Configuration: Wagmi + Mezo Passport
+
+### 4.1. Chain Definitions (`lib/wagmi/chains.ts`)
+
+Mezo Passport exports pre‑configured chains. We import them directly.
+
+```typescript
+// lib/wagmi/chains.ts
+export { mezoTestnet, mezoMainnet } from '@mezo-org/passport';
+
+// Mezo Testnet parameters (from official docs)
+// Chain ID: 31611
+// RPC: https://rpc.test.mezo.org
+// Native Currency: BTC (18 decimals)
+// Block Explorer: https://explorer.test.mezo.org
+```
+
+### 4.2. Wagmi Configuration with Mezo Passport (`lib/wagmi/config.ts`)
+
+This is the central configuration file. Mezo Passport's `getConfig` method returns a default configuration for Mezo Matsnet and must be passed to `WagmiProvider`. You can pass the same configuration options to `getConfig` as you would to `createDefaultConfig` from RainbowKit.
+
+By default, the library supports **Unisat, OKX, and Xverse** Bitcoin wallets. You can customize which Bitcoin wallets to include via the `bitcoinWallets` property.
+
+```typescript
+// lib/wagmi/config.ts
+import { getConfig, mezoTestnet, mezoMainnet } from '@mezo-org/passport';
+import { http } from 'wagmi';
+import { type Config } from 'wagmi';
+
+const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
+
+if (!projectId) {
+  throw new Error(
+    'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is required. ' +
+    'Get one at https://cloud.walletconnect.com/'
+  );
+}
+
+/**
+ * Creates the wagmi configuration with Mezo Passport.
+ *
+ * getConfig() returns a default configuration for Mezo Matsnet
+ * that includes Bitcoin wallet support (Xverse, Unisat, OKX)
+ * alongside standard EVM wallets (MetaMask, WalletConnect).
+ *
+ * You can pass the same options as RainbowKit's createDefaultConfig.
+ */
+export const config: Config = getConfig({
+  appName: 'veMEZO Auto-Compounder',
+  projectId,
+  chains: [mezoTestnet, mezoMainnet],
+  transports: {
+    [mezoTestnet.id]: http(),
+    [mezoMainnet.id]: http(),
+  },
+  ssr: true, // Enable SSR compatibility
+}) as Config;
+```
+
+**Customizing Bitcoin Wallets:**
+
+If you want to limit Bitcoin wallet support (e.g., only Unisat), use the `bitcoinWallets` property:
+
+```typescript
+// lib/wagmi/config-custom.ts (alternative — only Unisat)
+import { getConfig, unisatWallet, mezoTestnet } from '@mezo-org/passport';
+import { http } from 'wagmi';
+
+const customBitcoinWallets = [
+  {
+    groupName: 'Bitcoin Wallets',
+    wallets: [unisatWallet],
+  },
+];
+
+export const customConfig = getConfig({
+  appName: 'veMEZO Auto-Compounder',
+  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID!,
+  chains: [mezoTestnet],
+  transports: {
+    [mezoTestnet.id]: http(),
+  },
+  bitcoinWallets: customBitcoinWallets,
+});
+```
+
+### 4.3. Mezo‑Branded RainbowKit Theme (`lib/wagmi/theme.ts`)
+
+RainbowKit supports fully custom themes. We create a theme matching Mezo's brand colors.
+
+```typescript
+// lib/wagmi/theme.ts
+import { type Theme, darkTheme } from '@rainbow-me/rainbowkit';
+import merge from 'lodash/merge';
+
+/**
+ * Mezo-branded RainbowKit theme.
+ * Bitcoin orange + dark background.
+ */
+export const mezoTheme: Theme = merge(darkTheme(), {
+  colors: {
+    accentColor: '#F5A623',           // Bitcoin orange
+    accentColorForeground: '#FFFFFF',
+    actionButtonBorder: 'rgba(255, 255, 255, 0.08)',
+    actionButtonSecondaryBackground: 'rgba(20, 22, 26, 0.8)',
+    connectButtonBackground: 'rgba(20, 22, 26, 0.8)',
+    connectButtonBackgroundError: '#EF4444',
+    connectButtonText: '#FFFFFF',
+    connectButtonTextError: '#FFFFFF',
+    connectionIndicator: '#10B981',   // Green = connected
+    error: '#EF4444',
+    generalBorder: 'rgba(255, 255, 255, 0.08)',
+    modalBackground: '#0A0B0D',
+    modalBorder: 'rgba(255, 255, 255, 0.08)',
+    modalText: '#FFFFFF',
+    modalTextDim: '#6B7280',
+    modalTextSecondary: '#9CA3AF',
+    profileAction: 'rgba(255, 255, 255, 0.04)',
+    profileActionHover: 'rgba(255, 255, 255, 0.08)',
+    profileForeground: '#0A0B0D',
+    selectedOptionBorder: 'rgba(245, 166, 35, 0.3)',
+    standby: '#F59E0B',
+  },
+  fonts: {
+    body: 'var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  },
+  radii: {
+    actionButton: '12px',
+    connectButton: '12px',
+    menuButton: '12px',
+    modal: '16px',
+    modalMobile: '16px',
+  },
+  shadows: {
+    connectButton: '0 4px 12px rgba(0, 0, 0, 0.3)',
+    dialog: '0 8px 32px rgba(0, 0, 0, 0.5)',
+    profileAction: '0 2px 8px rgba(0, 0, 0, 0.2)',
+    selectedOption: '0 0 0 2px rgba(245, 166, 35, 0.3)',
+    selectedWallet: '0 0 0 2px rgba(245, 166, 35, 0.3)',
+    walletLogo: '0 2px 8px rgba(0, 0, 0, 0.2)',
+  },
+});
+```
+
+
+## 5. Web3 Provider Hierarchy
+
+### 5.1. `providers/Web3Provider.tsx`
+
+Wraps the entire application with `WagmiProvider`, `QueryClientProvider`, and `RainbowKitProvider`. This is the standard integration pattern.
+
+```tsx
+// providers/Web3Provider.tsx
+'use client';
+
+import { WagmiProvider } from 'wagmi';
+import { RainbowKitProvider } from '@rainbow-me/rainbowkit';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useState, type ReactNode } from 'react';
+import { config } from '@/lib/wagmi/config';
+import { mezoTheme } from '@/lib/wagmi/theme';
+import { mezoTestnet } from '@mezo-org/passport';
+import { Toaster } from 'sonner';
+import '@rainbow-me/rainbowkit/styles.css';
+
+interface Web3ProviderProps {
+  children: ReactNode;
+}
+
+export function Web3Provider({ children }: Web3ProviderProps) {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 30_000,       // 30 seconds
+            gcTime: 5 * 60_000,      // 5 minutes
+            refetchOnWindowFocus: false,
+            retry: 1,
+          },
+          mutations: {
+            retry: 1,
+          },
+        },
+      })
+  );
+
+  return (
+    <WagmiProvider config={config}>
+      <QueryClientProvider client={queryClient}>
+        <RainbowKitProvider
+          theme={mezoTheme}
+          initialChain={mezoTestnet}
+          modalSize="compact"
+          appInfo={{
+            appName: 'veMEZO Auto-Compounder',
+            learnMoreUrl: 'https://mezo.org/docs',
+          }}
+        >
+          {children}
+          <Toaster
+            position="top-right"
+            theme="dark"
+            toastOptions={{
+              style: {
+                background: '#0A0B0D',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                color: '#FFFFFF',
+              },
+            }}
+          />
+        </RainbowKitProvider>
+      </QueryClientProvider>
+    </WagmiProvider>
+  );
+}
+```
+
+### 5.2. Root Layout (`app/layout.tsx`)
+
+```tsx
+// app/layout.tsx
+import type { Metadata, Viewport } from 'next';
+import { Inter } from 'next/font/google';
+import { Web3Provider } from '@/providers/Web3Provider';
+import { Navbar } from '@/components/layout/Navbar';
+import './globals.css';
+
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-inter',
+});
+
+export const metadata: Metadata = {
+  title: {
+    default: 'veMEZO Auto-Compounder | Maximize Your Mezo Yield',
+    template: '%s | veMEZO Compounder',
+  },
+  description:
+    'Set and forget. Auto-compound veMEZO rewards, claim incentives, and boost your Bitcoin yield on Mezo.',
+};
+
+export const viewport: Viewport = {
+  themeColor: '#0A0B0D',
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en" className={`${inter.variable} dark`}>
+      <body className="bg-mezo-dark text-gray-100 antialiased">
+        <Web3Provider>
+          <Navbar />
+          <main className="min-h-screen">{children}</main>
+        </Web3Provider>
+      </body>
+    </html>
+  );
+}
+```
+
+### 5.3. Global Styles (`app/globals.css`)
+
+```css
+/* app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 4%;
+    --foreground: 0 0% 98%;
+  }
+
+  body {
+    @apply bg-[#0A0B0D] text-gray-100 antialiased;
+  }
+
+  /* RainbowKit overrides for Mezo branding */
+  [data-rk] {
+    --rk-colors-accentColor: #F5A623;
+    --rk-colors-accentColorForeground: #FFFFFF;
+  }
+}
+```
+
+
+## 6. Custom React Hooks
+
+### 6.1. `useWalletConnection` – Connection State & Actions
+
+Provides a unified interface for connecting, disconnecting, and switching chains. Uses `useConnect` and `useDisconnect` from wagmi.
+
+```typescript
+// hooks/useWalletConnection.ts
+'use client';
+
+import { useAccount, useConnect, useDisconnect, useSwitchChain, useChainId } from 'wagmi';
+import { useCallback, useMemo } from 'react';
+import { toast } from 'sonner';
+import { mezoTestnet } from '@mezo-org/passport';
+
+export interface WalletConnectionState {
+  isConnected: boolean;
+  isConnecting: boolean;
+  isReconnecting: boolean;
+  isSwitchingNetwork: boolean;
+  address: `0x${string}` | undefined;
+  chainId: number | undefined;
+  connectorName: string | undefined;
+}
+
+export interface WalletConnectionActions {
+  connect: () => Promise<void>;
+  disconnect: () => Promise<void>;
+  switchToMezo: () => Promise<void>;
+}
+
+export function useWalletConnection(): WalletConnectionState & WalletConnectionActions {
+  const { address, isConnected, chainId, connector } = useAccount();
+  const { connectAsync, connectors, isPending: isConnecting } = useConnect();
+  const { disconnectAsync } = useDisconnect();
+  const { switchChainAsync, isPending: isSwitchingNetwork } = useSwitchChain();
+
+  /**
+   * Connect to the first available connector.
+   * Mezo Passport surfaces Bitcoin wallets alongside EVM wallets.
+   */
+  const connect = useCallback(async () => {
+    try {
+      // Find the first ready connector
+      const connector = connectors.find((c) => c.ready) || connectors[0];
+      if (!connector) {
+        toast.error('No wallet connector available. Please install a supported wallet.');
+        return;
+      }
+
+      await connectAsync({
+        connector,
+        chainId: mezoTestnet.id,
+      });
+      toast.success('Wallet connected successfully');
+    } catch (error: any) {
+      if (error?.message?.includes('rejected') || error?.message?.includes('User rejected')) {
+        toast.error('Connection cancelled.');
+      } else if (error?.message?.includes('Connector not found')) {
+        toast.error('Wallet not installed. Please install Xverse, Unisat, OKX, or MetaMask.');
+      } else {
+        toast.error(`Connection failed: ${error?.message || 'Unknown error'}`);
+      }
+      throw error;
+    }
+  }, [connectAsync, connectors]);
+
+  const disconnect = useCallback(async () => {
+    try {
+      await disconnectAsync();
+      toast.success('Wallet disconnected');
+    } catch (error: any) {
+      toast.error(`Disconnect failed: ${error?.message || 'Unknown error'}`);
+      throw error;
+    }
+  }, [disconnectAsync]);
+
+  const switchToMezo = useCallback(async () => {
+    try {
+      await switchChainAsync({ chainId: mezoTestnet.id });
+      toast.success('Switched to Mezo Testnet');
+    } catch (error: any) {
+      if (error?.message?.includes('rejected')) {
+        toast.error('Network switch cancelled.');
+      } else {
+        toast.error(`Network switch failed: ${error?.message || 'Unknown error'}`);
+      }
+      throw error;
+    }
+  }, [switchChainAsync]);
+
+  const isReconnecting = useMemo(() => isConnecting && !isConnected, [isConnecting, isConnected]);
+
+  return {
+    isConnected,
+    isConnecting,
+    isReconnecting,
+    isSwitchingNetwork,
+    address,
+    chainId,
+    connectorName: connector?.name,
+    connect,
+    disconnect,
+    switchToMezo,
+  };
+}
+```
+
+### 6.2. `useBitcoinAccount` – BTC Address & Balance
+
+Uses Mezo Passport's `useBitcoinAccount()` hook to obtain the Bitcoin address and balance (in satoshis) of the connected wallet. The balance is returned as `{ confirmed: number, unconfirmed: number, total: number }`.
+
+```typescript
+// hooks/useBitcoinAccount.ts
+'use client';
+
+import { useBitcoinAccount as usePassportBitcoinAccount } from '@mezo-org/passport';
+import { useAccount } from 'wagmi';
+import { useMemo } from 'react';
+
+interface BitcoinAccount {
+  /** Bitcoin address (native BTC) */
+  btcAddress: string | undefined;
+  /** Balance in satoshis */
+  btcBalance: {
+    confirmed: number;
+    unconfirmed: number;
+    total: number;
+  };
+  /** True if connected via a Bitcoin wallet (Xverse, Unisat, OKX) */
+  isBitcoinWallet: boolean;
+  /** Underlying Mezo Matsnet EVM address */
+  evmAddress: `0x${string}` | undefined;
+}
+
+/**
+ * Wrapper around `useBitcoinAccount` from @mezo-org/passport.
+ *
+ * Provides the user's native Bitcoin address and balance,
+ * plus the underlying EVM address used for smart‑contract interactions.
+ *
+ * The underlying EVM account enables standard operations like
+ * reading data and interacting with smart contracts, while
+ * signing is routed to the Bitcoin wallet itself.
+ */
+export function useBitcoinAccount(): BitcoinAccount {
+  const { btcAddress, btcBalance } = usePassportBitcoinAccount();
+  const { address: evmAddress } = useAccount();
+
+  const isBitcoinWallet = useMemo(() => {
+    // If btcAddress is present, the user connected via a Bitcoin wallet.
+    return typeof btcAddress === 'string' && btcAddress.length > 0;
+  }, [btcAddress]);
+
+  return {
+    btcAddress,
+    btcBalance: btcBalance ?? { confirmed: 0, unconfirmed: 0, total: 0 },
+    isBitcoinWallet,
+    evmAddress,
+  };
+}
+
+/**
+ * Format satoshis to BTC string.
+ * 100,000,000 satoshis = 1 BTC
+ */
+export function satoshisToBTC(satoshis: number): string {
+  return (satoshis / 100_000_000).toFixed(8);
+}
+```
+
+### 6.3. `useNetworkStatus` – Network Health
+
+Monitors whether the user is on the correct network (Mezo Testnet).
+
+```typescript
+// hooks/useNetworkStatus.ts
+'use client';
+
+import { useChainId, useSwitchChain } from 'wagmi';
+import { useMemo, useCallback } from 'react';
+import { mezoTestnet, mezoMainnet } from '@mezo-org/passport';
+import { toast } from 'sonner';
+
+interface NetworkStatus {
+  /** True if on Mezo Testnet or Mezo Mainnet */
+  isCorrectNetwork: boolean;
+  /** Current chain name */
+  chainName: string | undefined;
+  /** True while switching networks */
+  isSwitching: boolean;
+  /** Switch to Mezo Testnet */
+  switchToCorrectNetwork: () => Promise<void>;
+}
+
+const SUPPORTED_CHAIN_IDS = new Set([mezoTestnet.id, mezoMainnet.id]);
+const CHAIN_NAMES: Record<number, string> = {
+  [mezoTestnet.id]: 'Mezo Testnet',
+  [mezoMainnet.id]: 'Mezo Mainnet',
+};
+
+export function useNetworkStatus(): NetworkStatus {
+  const chainId = useChainId();
+  const { switchChainAsync, isPending: isSwitching } = useSwitchChain();
+
+  const isCorrectNetwork = useMemo(
+    () => SUPPORTED_CHAIN_IDS.has(chainId),
+    [chainId]
+  );
+
+  const chainName = useMemo(
+    () => (chainId ? CHAIN_NAMES[chainId] || `Chain ${chainId}` : undefined),
+    [chainId]
+  );
+
+  const switchToCorrectNetwork = useCallback(async () => {
+    try {
+      await switchChainAsync({ chainId: mezoTestnet.id });
+      toast.success('Switched to Mezo Testnet');
+    } catch (error: any) {
+      if (!error?.message?.includes('rejected')) {
+        toast.error(`Network switch failed: ${error?.message || 'Unknown error'}`);
+      }
+    }
+  }, [switchChainAsync]);
+
+  return { isCorrectNetwork, chainName, isSwitching, switchToCorrectNetwork };
+}
+```
+
+### 6.4. `useBitcoinTransaction` – BTC Send & Sign
+
+Uses `useSendBitcoin` for sending native BTC transactions and `useSignMessage` for signing messages.
+
+```typescript
+// hooks/useBitcoinTransaction.ts
+'use client';
+
+import { useSendBitcoin } from '@mezo-org/passport';
+import { useSignMessage } from 'wagmi';
+import { useCallback } from 'react';
+import { toast } from 'sonner';
+
+interface BitcoinSendParams {
+  /** Recipient BTC address */
+  to: string;
+  /** Amount in satoshis (1 BTC = 100,000,000 satoshis) */
+  amountSatoshis: number;
+}
+
+/**
+ * Hooks for sending BTC and signing messages.
+ *
+ * - `sendBitcoin` sends native BTC from the connected Bitcoin wallet.
+ * - `signMessage` signs an arbitrary message using the connected wallet.
+ *
+ * Note: `useSendTransaction` from @mezo-org/passport is used for
+ * EVM transactions on Mezo Matsnet, while `useSendBitcoin` is used
+ * for native Bitcoin transactions.
+ */
+export function useBitcoinTransaction() {
+  const { sendBitcoin, isPending: isSendingBtc } = useSendBitcoin();
+  const { signMessageAsync, isPending: isSigning } = useSignMessage();
+
+  /**
+   * Send native BTC from the connected Bitcoin wallet.
+   *
+   * sendBitcoin takes two arguments:
+   *  - address: the BTC recipient address
+   *  - amount: the amount in satoshis
+   */
+  const sendBtc = useCallback(
+    async ({ to, amountSatoshis }: BitcoinSendParams): Promise<string | null> => {
+      try {
+        const txHash = await sendBitcoin(to, amountSatoshis);
+        toast.success(`BTC sent! Tx: ${txHash?.slice(0, 10)}...`);
+        return txHash;
+      } catch (error: any) {
+        if (error?.message?.includes('rejected') || error?.message?.includes('User rejected')) {
+          toast.error('Transaction cancelled.');
+        } else {
+          toast.error(`BTC send failed: ${error?.message || 'Unknown error'}`);
+        }
+        return null;
+      }
+    },
+    [sendBitcoin]
+  );
+
+  /**
+   * Sign a message with the connected wallet.
+   * Uses standard wagmi `useSignMessage` hook.
+   */
+  const signMessage = useCallback(
+    async (message: string): Promise<string | null> => {
+      try {
+        const signature = await signMessageAsync({ message });
+        toast.success('Message signed successfully');
+        return signature;
+      } catch (error: any) {
+        if (error?.message?.includes('rejected') || error?.message?.includes('User rejected')) {
+          toast.error('Signing cancelled.');
+        } else {
+          toast.error(`Signing failed: ${error?.message || 'Unknown error'}`);
+        }
+        return null;
+      }
+    },
+    [signMessageAsync]
+  );
+
+  return {
+    sendBtc,
+    signMessage,
+    isSendingBtc,
+    isSigning,
+  };
+}
+```
+
+
+## 7. Wallet Connection Components
+
+### 7.1. ConnectButton – Styled RainbowKit Button
+
+Mezo Passport supports two ways to connect: via RainbowKit's `ConnectButton` (simplest) or via wagmi's `useConnect` hook (full control). We use the custom approach for maximum design flexibility.
+
+```tsx
+// components/wallet/ConnectButton.tsx
+'use client';
+
+import { useWalletConnection } from '@/hooks/useWalletConnection';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { useBitcoinAccount } from '@/hooks/useBitcoinAccount';
+import { Button } from '@/components/ui/Button';
+import { Wallet, AlertCircle, Loader2, ChevronDown, Bitcoin } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useState } from 'react';
+
+/**
+ * Custom wallet connection button.
+ *
+ * Renders differently based on connection state:
+ * - Disconnected: "Connect Wallet" CTA
+ * - Connecting: loading spinner
+ * - Connected (wrong network): "Switch Network" warning
+ * - Connected: address + network indicator
+ */
+export function ConnectButton() {
+  const { isConnected, isConnecting, connect, disconnect } = useWalletConnection();
+  const { isCorrectNetwork, switchToCorrectNetwork } = useNetworkStatus();
+  const { btcAddress, isBitcoinWallet } = useBitcoinAccount();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // --- Not Connected ---
+  if (!isConnected) {
+    return (
+      <Button onClick={connect} loading={isConnecting} className="gap-2">
+        <Wallet className="h-4 w-4" />
+        {isConnecting ? 'Connecting…' : 'Connect Wallet'}
+      </Button>
+    );
+  }
+
+  // --- Wrong Network ---
+  if (!isCorrectNetwork) {
+    return (
+      <Button onClick={switchToCorrectNetwork} variant="danger" className="gap-2">
+        <AlertCircle className="h-4 w-4" />
+        Switch to Mezo
+      </Button>
+    );
+  }
+
+  // --- Connected (correct network) ---
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setMenuOpen(!menuOpen)}
+        className={cn(
+          'flex items-center gap-2 px-4 py-2 rounded-xl border transition',
+          'bg-card border-border hover:bg-white/5'
+        )}
+      >
+        {isBitcoinWallet && <Bitcoin className="h-4 w-4 text-mezo-primary" />}
+        <span className="text-sm font-medium">
+          {btcAddress ? `${btcAddress.slice(0, 6)}…${btcAddress.slice(-4)}` : 'Connected'}
+        </span>
+        <div className="w-2 h-2 rounded-full bg-mezo-accent" />
+        <ChevronDown className="h-4 w-4 text-mezo-muted" />
+      </button>
+
+      {/* Dropdown */}
+      {menuOpen && (
+        <div
+          className="absolute right-0 mt-2 w-56 rounded-xl bg-mezo-darker border border-border shadow-xl z-50"
+          onMouseLeave={() => setMenuOpen(false)}
+        >
+          <div className="p-3 border-b border-border">
+            <p className="text-xs text-mezo-muted">
+              {isBitcoinWallet ? 'Bitcoin Wallet' : 'EVM Wallet'}
+            </p>
+            {btcAddress && (
+              <p className="text-sm font-mono mt-1">
+                {btcAddress.slice(0, 12)}…{btcAddress.slice(-8)}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={() => {
+              disconnect();
+              setMenuOpen(false);
+            }}
+            className="w-full px-4 py-3 text-left text-red-400 hover:bg-red-400/5 rounded-b-xl transition"
+          >
+            Disconnect
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### 7.2. NetworkSwitcher Component
+
+```tsx
+// components/wallet/NetworkSwitcher.tsx
+'use client';
+
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { mezoTestnet, mezoMainnet } from '@mezo-org/passport';
+import { useSwitchChain } from 'wagmi';
+import { Check, ChevronDown, AlertTriangle } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useState } from 'react';
+import { toast } from 'sonner';
+
+const CHAINS = [
+  { id: mezoTestnet.id, name: 'Mezo Testnet', testnet: true },
+  { id: mezoMainnet.id, name: 'Mezo Mainnet', testnet: false },
+];
+
+export function NetworkSwitcher() {
+  const { isCorrectNetwork, chainName } = useNetworkStatus();
+  const { switchChainAsync, isPending } = useSwitchChain();
+  const [open, setOpen] = useState(false);
+
+  const handleSwitch = async (chainId: number) => {
+    try {
+      await switchChainAsync({ chainId });
+      toast.success(`Switched to ${CHAINS.find((c) => c.id === chainId)?.name}`);
+      setOpen(false);
+    } catch {}
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        disabled={isPending}
+        className={cn(
+          'flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition',
+          isCorrectNetwork
+            ? 'bg-mezo-accent/10 border-mezo-accent/30 text-mezo-accent'
+            : 'bg-red-500/10 border-red-500/30 text-red-400'
+        )}
+      >
+        {!isCorrectNetwork && <AlertTriangle className="h-3.5 w-3.5" />}
+        {chainName || 'Unknown'}
+        <ChevronDown className="h-3.5 w-3.5" />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 mt-2 w-48 rounded-xl bg-mezo-darker border border-border shadow-xl z-50">
+          {CHAINS.map((chain) => (
+            <button
+              key={chain.id}
+              onClick={() => handleSwitch(chain.id)}
+              className="flex items-center justify-between w-full px-4 py-3 hover:bg-white/5 transition"
+            >
+              <span>{chain.name}</span>
+              {chain.testnet && (
+                <span className="text-xs bg-white/10 px-1.5 py-0.5 rounded">Testnet</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### 7.3. BitcoinBalance Component
+
+Displays the user's BTC balance when connected via a Bitcoin wallet.
+
+```tsx
+// components/wallet/BitcoinBalance.tsx
+'use client';
+
+import { useBitcoinAccount, satoshisToBTC } from '@/hooks/useBitcoinAccount';
+import { Bitcoin } from 'lucide-react';
+
+export function BitcoinBalance() {
+  const { btcAddress, btcBalance, isBitcoinWallet } = useBitcoinAccount();
+
+  if (!isBitcoinWallet || !btcAddress) return null;
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-mezo-primary/10 border border-mezo-primary/20 rounded-lg text-sm">
+      <Bitcoin className="h-4 w-4 text-mezo-primary" />
+      <span>{satoshisToBTC(btcBalance.total)} BTC</span>
+    </div>
+  );
+}
+```
+
+### 7.4. WalletErrorBoundary – Connection Recovery
+
+```tsx
+// components/wallet/WalletErrorBoundary.tsx
+'use client';
+
+import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { Button } from '@/components/ui/Button';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
+
+interface Props {
+  children: ReactNode;
+  onReset?: () => void;
+}
+
+interface State {
+  hasError: boolean;
+  error: Error | null;
+}
+
+export class WalletErrorBoundary extends Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): Partial<State> {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('[WalletErrorBoundary] Wallet connection error:', error, errorInfo);
+  }
+
+  handleReset = () => {
+    this.props.onReset?.();
+    this.setState({ hasError: false, error: null });
+    window.location.reload();
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-0 flex items-center justify-center bg-mezo-darker/95 backdrop-blur-sm z-50">
+          <div className="max-w-md p-8 bg-card border border-border rounded-2xl text-center">
+            <AlertTriangle className="h-16 w-16 text-mezo-primary mx-auto mb-4" />
+            <h2 className="text-xl font-bold mb-2">Wallet Connection Error</h2>
+            <p className="text-mezo-muted mb-6">
+              {this.state.error?.message || 'An unexpected error occurred with your wallet.'}
+            </p>
+            <Button onClick={this.handleReset} className="gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Reset Connection
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+```
+
+
+## 8. Utility Helpers
+
+### 8.1. Wallet Error Parser
+
+```typescript
+// lib/wallet/errors.ts
+export enum WalletErrorType {
+  CONNECTOR_NOT_FOUND = 'ConnectorNotFoundError',
+  USER_REJECTED = 'UserRejectedRequestError',
+  CHAIN_NOT_CONFIGURED = 'ChainNotConfiguredError',
+  NETWORK_ERROR = 'NetworkError',
+  UNSUPPORTED_CHAIN = 'UnsupportedChainError',
+  INSUFFICIENT_FUNDS = 'InsufficientFundsError',
+  UNKNOWN = 'UnknownError',
+}
+
+export interface ParsedWalletError {
+  type: WalletErrorType;
+  message: string;
+  originalError?: Error;
+}
+
+export function parseWalletError(error: unknown): ParsedWalletError {
+  const msg = error instanceof Error ? error.message : String(error);
+  const name = error instanceof Error ? error.name : '';
+
+  if (msg.includes('User rejected') || msg.includes('user rejected')) {
+    return { type: WalletErrorType.USER_REJECTED, message: 'Transaction was rejected by the user.' };
+  }
+  if (name === 'ConnectorNotFoundError' || msg.includes('Connector not found')) {
+    return {
+      type: WalletErrorType.CONNECTOR_NOT_FOUND,
+      message: 'Wallet not found. Please install Xverse, Unisat, OKX, or MetaMask.',
+    };
+  }
+  if (msg.includes('Chain mismatch') || name === 'ChainMismatchError') {
+    return { type: WalletErrorType.CHAIN_NOT_CONFIGURED, message: 'Please switch to Mezo Testnet.' };
+  }
+  if (msg.includes('insufficient funds')) {
+    return { type: WalletErrorType.INSUFFICIENT_FUNDS, message: 'Insufficient BTC for gas fees.' };
+  }
+  return { type: WalletErrorType.UNKNOWN, message: msg || 'An unknown error occurred.' };
+}
+```
+
+### 8.2. Address Formatters
+
+```typescript
+// lib/utils/address.ts
+export function shortenAddress(address: string, chars = 4): string {
+  if (!address || address.length < chars * 2 + 4) return address || '';
+  return `${address.slice(0, chars + 2)}…${address.slice(-chars)}`;
+}
+
+export function formatBTCAddress(address: string): string {
+  if (address.startsWith('bc1')) {
+    return `${address.slice(0, 8)}…${address.slice(-6)}`;
+  }
+  return shortenAddress(address, 5);
+}
+```
+
+
+## 9. Environment Configuration
+
+```env
+# .env.local
+
+# Required: Get from https://cloud.walletconnect.com/
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_project_id_here
+
+# Mezo Testnet (Chain ID 31611)
+NEXT_PUBLIC_CHAIN_ID=31611
+NEXT_PUBLIC_RPC_URL=https://rpc.test.mezo.org
+
+# Optional: Mainnet
+# NEXT_PUBLIC_MAINNET_CHAIN_ID=31612
+# NEXT_PUBLIC_MAINNET_RPC_URL=https://rpc-http.mezo.boar.network
+
+# Vault contract addresses (from deployment)
+NEXT_PUBLIC_VAULT_ADDRESS=0x…
+NEXT_PUBLIC_VEMEZO_ADDRESS=0x…
+```
+
+
+## 10. Testing Wallet Connections
+
+### 10.1. Test Configuration
+
+```typescript
+// lib/wagmi/test-config.ts
+import { createConfig, http } from 'wagmi';
+import { mock } from 'wagmi/connectors';
+import { mezoTestnet } from '@mezo-org/passport';
+
+/**
+ * Mock wagmi config for testing.
+ * Uses a mock connector with a pre‑funded test account.
+ */
+export const testConfig = createConfig({
+  chains: [mezoTestnet],
+  connectors: [
+    mock({
+      accounts: ['0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'],
+    }),
+  ],
+  transports: {
+    [mezoTestnet.id]: http(),
+  },
+});
+```
+
+### 10.2. Hook Tests
+
+```typescript
+// __tests__/hooks/useWalletConnection.test.tsx
+import { renderHook, act } from '@testing-library/react';
+import { WagmiProvider } from 'wagmi';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useWalletConnection } from '@/hooks/useWalletConnection';
+import { testConfig } from '@/lib/wagmi/test-config';
+import { type ReactNode } from 'react';
+
+const queryClient = new QueryClient();
+
+function wrapper({ children }: { children: ReactNode }) {
+  return (
+    <WagmiProvider config={testConfig}>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    </WagmiProvider>
+  );
+}
+
+describe('useWalletConnection', () => {
+  it('returns disconnected state initially', () => {
+    const { result } = renderHook(() => useWalletConnection(), { wrapper });
+    expect(result.current.isConnected).toBe(false);
+    expect(result.current.address).toBeUndefined();
+  });
+
+  it('provides connect, disconnect, and switchToMezo functions', () => {
+    const { result } = renderHook(() => useWalletConnection(), { wrapper });
+    expect(typeof result.current.connect).toBe('function');
+    expect(typeof result.current.disconnect).toBe('function');
+    expect(typeof result.current.switchToMezo).toBe('function');
+  });
+});
+```
+
+
+## 11. Hackathon Pitch Script (Mezo Passport Section)
+
+> "Our vault uses **Mezo Passport** — the official wallet‑connection library built on RainbowKit. This means users can connect with **native Bitcoin wallets** like Xverse, Unisat, and OKX alongside standard EVM wallets like MetaMask. Under the hood, Mezo Passport creates a backing smart account on the Mezo Matsnet chain that enables EVM interactions while routing all signing to the Bitcoin wallet — so users get the best of both worlds without switching wallets. We display BTC balances in satoshis, support native Bitcoin transactions, and provide a seamless 'login with Bitcoin' experience. This directly satisfies the hackathon's mandatory **Mezo Passport integration** requirement."
+
+
+## 12. Summary of Deliverables
+
+| Component | File | Key Features |
+|:---|:---|:---|
+| Wagmi Config | `lib/wagmi/config.ts` | `getConfig()` + Bitcoin wallets |
+| RainbowKit Theme | `lib/wagmi/theme.ts` | Mezo‑branded dark theme |
+| Web3Provider | `providers/Web3Provider.tsx` | Full provider hierarchy |
+| `useWalletConnection` | `hooks/useWalletConnection.ts` | connect / disconnect / switch |
+| `useBitcoinAccount` | `hooks/useBitcoinAccount.ts` | BTC address + satoshi balance |
+| `useNetworkStatus` | `hooks/useNetworkStatus.ts` | Correct‑network detection |
+| `useBitcoinTransaction` | `hooks/useBitcoinTransaction.ts` | BTC send + sign |
+| ConnectButton | `components/wallet/ConnectButton.tsx` | Styled connection CTA |
+| NetworkSwitcher | `components/wallet/NetworkSwitcher.tsx` | Chain dropdown |
+| BitcoinBalance | `components/wallet/BitcoinBalance.tsx` | BTC balance display |
+| WalletErrorBoundary | `components/wallet/WalletErrorBoundary.tsx` | Error recovery |
+| Error Parser | `lib/wallet/errors.ts` | Typed wallet errors |
+| Test Config | `lib/wagmi/test-config.ts` | Mock connector |
+
+This implementation provides a complete, production‑ready Mezo Passport integration that supports all Bitcoin and EVM wallets, satisfies the hackathon's mandatory 30% Mezo Integration requirement, and delivers a polished user experience aligned with Mezo's brand identity.
+

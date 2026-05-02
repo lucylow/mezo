@@ -74,8 +74,6 @@ const RISK_STYLE: Record<string, string> = {
 
 const TABS = ["All Strategies", "Vaults", "Lending", "Liquidity"];
 
-import { useState } from "react";
-
 export default function Earn() {
   const [tab, setTab] = useState("All Strategies");
 

@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, Vault, BarChart3, BookOpen, Menu, X, Wallet,
   TrendingUp, ArrowLeftRight, Vote, Trophy, History, Settings,
-  ExternalLink, ChevronLeft, ChevronRight, Home, User,
+  ExternalLink, ChevronLeft, ChevronRight, Home, User, AlertCircle,
 } from "lucide-react";
 import { useChainId } from "wagmi";
 import { cn } from "@/lib/utils";
@@ -106,6 +106,8 @@ export function DAppLayout({ children }: { children: React.ReactNode }) {
   const { sidebarCollapsed, toggleSidebar, mobileSidebarOpen, toggleMobileSidebar, closeMobileSidebar } = useAppStore();
   const { isConnected, address, disconnect } = useWalletConnection();
   const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const chainId = useChainId();
+  const isWrongNetwork = isConnected && !MEZO_CHAIN_IDS.includes(chainId);
 
   useEffect(() => { closeMobileSidebar(); }, [location]);
 
@@ -210,6 +212,14 @@ export function DAppLayout({ children }: { children: React.ReactNode }) {
             )}
           </div>
         </header>
+
+        {/* Wrong network banner */}
+        {isWrongNetwork && (
+          <div className="flex items-center gap-3 px-4 py-2.5 bg-red-500/10 border-b border-red-500/20 text-sm text-red-300">
+            <AlertCircle className="h-4 w-4 shrink-0 text-red-400" />
+            <span>You're connected to the wrong network. Please switch to <strong className="text-red-200">Mezo Mainnet</strong> to use the app.</span>
+          </div>
+        )}
 
         <main className="flex-1 p-4 md:p-8 overflow-y-auto pb-24 md:pb-8">
           <div className="max-w-6xl mx-auto">
