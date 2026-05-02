@@ -145,6 +145,27 @@ All endpoints return `{ data, source }` where `source` is `"mock"` when
   - WalletModal shows Mezo Passport branding with Bitcoin wallet guidance.
 - UI: Radix UI (NO headlessui)
 
+## Architecture Improvements (May 2026)
+
+### Subgraph
+- Removed dead `FeeRewardClaimed` import and `handleFeeRewardClaimed` handler from `mapping.ts` — the contract never emits this event (it emits `RewardsClaimed`). Dead handler would break Goldsky subgraph build.
+- Removed duplicate `FeeRewardClaimed` entry from `subgraph.yaml` eventHandlers.
+- Added `EpochVote` to the entities list in `subgraph.yaml` (was missing despite being used in mapping).
+
+### Smart Contracts
+- **GelatoCompounder** and **ChainlinkCompounder**: Replaced all `require` strings with custom errors. Added on-chain interval guard to `executeCompound`/`performUpkeep` (previously checker was off-chain only).
+- **TreasuryYieldManager**: Fixed critical `harvestAll()` bug — `beforeBalance` and `afterBalance` were assigned identically, so yield was always 0. Now uses `_lastHarvestValue` snapshot pattern. Added `InvalidAddress`, `InsufficientBalance`, and `AllocationMustSum10000` custom errors. Resets approval to 0 after each `forceApprove` on the savings vault.
+- **VaultMultiSig**: Replaced all `require` strings with custom errors. Added `unchecked { ++i }` for loop counters. Added `ActionWindowUpdated` event.
+
+### Deploy Scripts
+- **deploy.ts**: Fixed missing `hre` import (was using `hre as any` which would fail at runtime). Now imports `hre` from hardhat and also verifies the VaultToken.
+- **deploy-full.ts**: Added `TreasuryYieldManager` deployment step (step 4). Added inline `hre` import. Added per-contract verification loop. Added Timelock ownership-acceptance note in summary.
+
+### Keeper Bot
+- Added `keeper/src/watcher.ts`: WebSocket event watcher using `wss://rpc-ws.test.mezo.org`. Subscribes to all vault events (Deposited, Withdrawn, Compounded, GaugesVoted, RewardsClaimed, KeeperUpdated, Paused) in real time. Auto-reconnects with exponential back-off up to 10 attempts.
+- `index.ts`: `startWatcher(logger)` is called on boot alongside the cron. Errors are non-fatal (logged as warn, keeper continues).
+- `keeper/.env.example`: Added `MEZO_WSS_URL` variable.
+
 ## Recent Feature Additions (April 2026)
 
 ### Smart Contracts

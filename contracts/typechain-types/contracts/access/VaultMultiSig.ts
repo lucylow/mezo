@@ -50,6 +50,7 @@ export interface VaultMultiSigInterface extends Interface {
 
   getEvent(
     nameOrSignatureOrTopic:
+      | "ActionWindowUpdated"
       | "EmergencyActionApproved"
       | "EmergencyActionExecuted"
       | "EmergencyActionProposed"
@@ -212,6 +213,19 @@ export interface VaultMultiSigInterface extends Interface {
     functionFragment: "supportsInterface",
     data: BytesLike
   ): Result;
+}
+
+export namespace ActionWindowUpdatedEvent {
+  export type InputTuple = [oldWindow: BigNumberish, newWindow: BigNumberish];
+  export type OutputTuple = [oldWindow: bigint, newWindow: bigint];
+  export interface OutputObject {
+    oldWindow: bigint;
+    newWindow: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
 }
 
 export namespace EmergencyActionApprovedEvent {
@@ -594,6 +608,13 @@ export interface VaultMultiSig extends BaseContract {
   ): TypedContractMethod<[interfaceId: BytesLike], [boolean], "view">;
 
   getEvent(
+    key: "ActionWindowUpdated"
+  ): TypedContractEvent<
+    ActionWindowUpdatedEvent.InputTuple,
+    ActionWindowUpdatedEvent.OutputTuple,
+    ActionWindowUpdatedEvent.OutputObject
+  >;
+  getEvent(
     key: "EmergencyActionApproved"
   ): TypedContractEvent<
     EmergencyActionApprovedEvent.InputTuple,
@@ -651,6 +672,17 @@ export interface VaultMultiSig extends BaseContract {
   >;
 
   filters: {
+    "ActionWindowUpdated(uint256,uint256)": TypedContractEvent<
+      ActionWindowUpdatedEvent.InputTuple,
+      ActionWindowUpdatedEvent.OutputTuple,
+      ActionWindowUpdatedEvent.OutputObject
+    >;
+    ActionWindowUpdated: TypedContractEvent<
+      ActionWindowUpdatedEvent.InputTuple,
+      ActionWindowUpdatedEvent.OutputTuple,
+      ActionWindowUpdatedEvent.OutputObject
+    >;
+
     "EmergencyActionApproved(bytes32,address)": TypedContractEvent<
       EmergencyActionApprovedEvent.InputTuple,
       EmergencyActionApprovedEvent.OutputTuple,

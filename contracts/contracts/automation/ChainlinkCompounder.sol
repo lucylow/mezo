@@ -4,33 +4,43 @@ pragma solidity 0.8.26;
 import "../VeMEZOAutoCompounder.sol";
 
 /**
- * @title ChainlinkCompounder
+ * @title  ChainlinkCompounder
  * @notice Chainlink Automation (Keepers v2) integration for the Auto-Compounder vault.
  *
- * Chainlink nodes call `checkUpkeep()` off-chain; when `upkeepNeeded` is true,
- * they call `performUpkeep()` on-chain via a registered Chainlink upkeep.
+ *         Chainlink nodes call `checkUpkeep()` off-chain; when `upkeepNeeded` is
+ *         true, they call `performUpkeep()` on-chain via a registered upkeep.
  *
- * Deployment steps
- * ────────────────
- * 1. Deploy this contract.
- * 2. Register an upkeep at automation.chain.link pointing to this contract.
- * 3. Fund the upkeep with LINK tokens.
- * 4. Call `vault.updateKeeper(address(this))` to authorise this contract.
+ * @dev    Deployment steps
+ *         ─────────────────
+ *         1. Deploy this contract.
+ *         2. Register an upkeep at automation.chain.link pointing to this address.
+ *         3. Fund the upkeep with LINK tokens.
+ *         4. Call `vault.updateKeeper(address(this))` to authorise this contract.
  */
 contract ChainlinkCompounder {
 
-    // ── State ───────────────────────────────────────────────────────────────
+    // ── Custom errors ────────────────────────────────────────────────────────
 
+    error NotOwner(address caller);
+    error InvalidAddress();
+    error IntervalTooShort(uint256 provided, uint256 minimum);
+    error TooSoon(uint256 nextAllowed, uint256 current);
+
+    // ── State ────────────────────────────────────────────────────────────────
+
+    /// @notice The VeMEZOAutoCompounder vault this contract compounds.
     VeMEZOAutoCompounder public immutable vault;
 
-    /// @notice Minimum interval between compounds.
+    /// @notice Minimum interval between compounds (immutable after deploy).
     uint256 public immutable interval;
 
+    /// @notice Unix timestamp of the last performUpkeep() call.
     uint256 public lastExecution;
 
+    /// @notice Owner of this compounder contract.
     address public owner;
 
-    // ── Events ──────────────────────────────────────────────────────────────
+    // ── Events ───────────────────────────────────────────────────────────────
 
     event CompoundedViaChainlink(uint256 totalRewards, uint256 fee, uint256 compounded);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
@@ -38,7 +48,7 @@ contract ChainlinkCompounder {
     // ── Modifiers ────────────────────────────────────────────────────────────
 
     modifier onlyOwner() {
-        require(msg.sender == owner, "ChainlinkCompounder: not owner");
+        if (msg.sender != owner) revert NotOwner(msg.sender);
         _;
     }
 
@@ -49,23 +59,21 @@ contract ChainlinkCompounder {
      * @param _interval Minimum seconds between compounds (e.g. 21600 for 6 hours).
      */
     constructor(address _vault, uint256 _interval) {
-        require(_vault    != address(0), "Invalid vault");
-        require(_interval >= 1 hours,    "Interval too short");
+        if (_vault == address(0)) revert InvalidAddress();
+        if (_interval < 1 hours) revert IntervalTooShort(_interval, 1 hours);
         vault    = VeMEZOAutoCompounder(_vault);
         interval = _interval;
         owner    = msg.sender;
     }
 
-    // ── Chainlink interface ───────────────────────────────────────────────────
+    // ── Chainlink Automation interface ────────────────────────────────────────
 
     /**
      * @notice Called by Chainlink nodes to determine whether upkeep is needed.
-     * @return upkeepNeeded True when it is time to compound and it is profitable.
-     * @return performData  Encoded gas price passed to performUpkeep (informational).
+     * @return upkeepNeeded True when the interval has elapsed and compounding is profitable.
+     * @return performData  ABI-encoded gas price passed to performUpkeep (informational).
      */
-    function checkUpkeep(
-        bytes calldata /* checkData */
-    )
+    function checkUpkeep(bytes calldata /* checkData */)
         external
         view
         returns (bool upkeepNeeded, bytes memory performData)
@@ -83,9 +91,12 @@ contract ChainlinkCompounder {
 
     /**
      * @notice Called by Chainlink nodes when `checkUpkeep` returns true.
+     * @dev    Re-checks the interval on-chain to guard against race conditions.
      */
     function performUpkeep(bytes calldata /* performData */) external {
-        require(block.timestamp >= lastExecution + interval, "Too soon");
+        if (block.timestamp < lastExecution + interval) {
+            revert TooSoon(lastExecution + interval, block.timestamp);
+        }
         lastExecution = block.timestamp;
         (uint256 rewards, uint256 fee, uint256 compounded) = vault.compoundAll();
         emit CompoundedViaChainlink(rewards, fee, compounded);
@@ -93,8 +104,12 @@ contract ChainlinkCompounder {
 
     // ── Admin ─────────────────────────────────────────────────────────────────
 
+    /**
+     * @notice Transfer ownership of this compounder.
+     * @param newOwner Must be non-zero.
+     */
     function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "Zero address");
+        if (newOwner == address(0)) revert InvalidAddress();
         emit OwnershipTransferred(owner, newOwner);
         owner = newOwner;
     }

@@ -21,25 +21,38 @@ interface IAutomate {
 }
 
 /**
- * @title GelatoCompounder
+ * @title  GelatoCompounder
  * @notice Gelato-compatible resolver + executor for decentralized compounding.
  *
- * Replaces the single centralised keeper bot with a decentralised executor
- * network. Gelato nodes call `checker()` off-chain; if it returns canExec=true
- * they call `executeCompound()` on-chain.
+ *         Replaces the single centralised keeper bot with a decentralised executor
+ *         network. Gelato nodes call `checker()` off-chain; when it returns
+ *         canExec=true they submit `executeCompound()` on-chain.
  *
- * Deployment steps
- * ────────────────
- * 1. Deploy this contract.
- * 2. Fund it with a small ETH/native balance for Gelato fee payment.
- * 3. Call `createTask()` — Gelato registers the resolver-based task.
- * 4. Call `vault.updateKeeper(address(this))` to authorise this contract.
+ * @dev    Deployment steps
+ *         ─────────────────
+ *         1. Deploy this contract.
+ *         2. Fund it with a small native balance (BTC on Mezo) for Gelato fees.
+ *         3. Call `createTask()` — Gelato registers the resolver-based task.
+ *         4. Call `vault.updateKeeper(address(this))` to authorise this contract.
  */
 contract GelatoCompounder {
 
-    // ── State ───────────────────────────────────────────────────────────────
+    // ── Custom errors ────────────────────────────────────────────────────────
 
+    error NotOwner(address caller);
+    error InvalidAddress();
+    error TooSoon(uint256 nextAllowed, uint256 current);
+    error TaskAlreadyExists(bytes32 taskId);
+    error NoTaskExists();
+    error IntervalTooShort(uint256 provided, uint256 minimum);
+    error IntervalTooLong(uint256 provided, uint256 maximum);
+
+    // ── State ────────────────────────────────────────────────────────────────
+
+    /// @notice The VeMEZOAutoCompounder vault this contract compounds.
     VeMEZOAutoCompounder public immutable vault;
+
+    /// @notice Gelato Automate contract on this chain.
     IAutomate             public immutable automate;
 
     /// @notice Gelato task identifier (set after createTask()).
@@ -48,11 +61,13 @@ contract GelatoCompounder {
     /// @notice Minimum seconds between compounds (default 6 hours).
     uint256 public minInterval = 6 hours;
 
+    /// @notice Unix timestamp of the last executeCompound() call.
     uint256 public lastExecution;
 
+    /// @notice Owner of this compounder contract.
     address public owner;
 
-    // ── Events ──────────────────────────────────────────────────────────────
+    // ── Events ───────────────────────────────────────────────────────────────
 
     event TaskCreated(bytes32 indexed taskId);
     event TaskCancelled(bytes32 indexed taskId);
@@ -63,7 +78,7 @@ contract GelatoCompounder {
     // ── Modifiers ────────────────────────────────────────────────────────────
 
     modifier onlyOwner() {
-        require(msg.sender == owner, "GelatoCompounder: not owner");
+        if (msg.sender != owner) revert NotOwner(msg.sender);
         _;
     }
 
@@ -74,8 +89,8 @@ contract GelatoCompounder {
      * @param _automate Address of the Gelato Automate contract on this chain.
      */
     constructor(address _vault, address _automate) {
-        require(_vault    != address(0), "Invalid vault");
-        require(_automate != address(0), "Invalid automate");
+        if (_vault    == address(0)) revert InvalidAddress();
+        if (_automate == address(0)) revert InvalidAddress();
         vault    = VeMEZOAutoCompounder(_vault);
         automate = IAutomate(_automate);
         owner    = msg.sender;
@@ -84,7 +99,7 @@ contract GelatoCompounder {
     // ── Gelato resolver ──────────────────────────────────────────────────────
 
     /**
-     * @notice Off-chain resolver called by Gelato nodes to decide whether to run.
+     * @notice Off-chain resolver called by Gelato nodes to decide whether to execute.
      * @return canExec     True when compounding is due and profitable.
      * @return execPayload ABI-encoded call to `executeCompound()`.
      */
@@ -106,9 +121,13 @@ contract GelatoCompounder {
     // ── Execution ────────────────────────────────────────────────────────────
 
     /**
-     * @notice Execute compoundAll on the vault. Called by Gelato executor.
+     * @notice Execute compoundAll on the vault. Called by the Gelato executor.
+     * @dev    Enforces the minimum interval to prevent excessive execution.
      */
     function executeCompound() external {
+        if (block.timestamp < lastExecution + minInterval) {
+            revert TooSoon(lastExecution + minInterval, block.timestamp);
+        }
         lastExecution = block.timestamp;
         (uint256 rewards, uint256 fee, uint256 compounded) = vault.compoundAll();
         emit CompoundedViaGelato(rewards, fee, compounded);
@@ -121,7 +140,7 @@ contract GelatoCompounder {
      * @return newTaskId The Gelato task ID.
      */
     function createTask() external onlyOwner returns (bytes32 newTaskId) {
-        require(taskId == bytes32(0), "Task already exists");
+        if (taskId != bytes32(0)) revert TaskAlreadyExists(taskId);
 
         IAutomate.ModuleData memory moduleData;
         moduleData.modules = new IAutomate.Module[](2);
@@ -148,23 +167,31 @@ contract GelatoCompounder {
      * @notice Cancel the active Gelato task.
      */
     function cancelTask() external onlyOwner {
-        require(taskId != bytes32(0), "No task exists");
+        if (taskId == bytes32(0)) revert NoTaskExists();
         automate.cancelTask(taskId);
         emit TaskCancelled(taskId);
         taskId = bytes32(0);
     }
 
-    // ── Config ────────────────────────────────────────────────────────────────
+    // ── Config ───────────────────────────────────────────────────────────────
 
+    /**
+     * @notice Update the minimum interval between compounds.
+     * @param _interval New minimum in seconds (1 hour – 7 days).
+     */
     function setMinInterval(uint256 _interval) external onlyOwner {
-        require(_interval >= 1 hours,  "Min 1 hour");
-        require(_interval <= 7 days,   "Max 7 days");
+        if (_interval < 1 hours) revert IntervalTooShort(_interval, 1 hours);
+        if (_interval > 7 days)  revert IntervalTooLong(_interval, 7 days);
         emit MinIntervalUpdated(minInterval, _interval);
         minInterval = _interval;
     }
 
+    /**
+     * @notice Transfer ownership of this compounder.
+     * @param newOwner Must be non-zero.
+     */
     function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "Zero address");
+        if (newOwner == address(0)) revert InvalidAddress();
         emit OwnershipTransferred(owner, newOwner);
         owner = newOwner;
     }

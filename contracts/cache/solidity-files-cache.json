@@ -2002,8 +2002,8 @@
       "artifacts": []
     },
     "/home/runner/workspace/contracts/contracts/automation/GelatoCompounder.sol": {
-      "lastModificationDate": 1776906014772,
-      "contentHash": "2ca35b0c48dba1a5f7d541a83ae5dff2",
+      "lastModificationDate": 1777733141808,
+      "contentHash": "ec5fd0a83119f53422b65f1965fa1251",
       "sourceName": "contracts/automation/GelatoCompounder.sol",
       "solcConfig": {
         "version": "0.8.26",
@@ -2042,8 +2042,8 @@
       ]
     },
     "/home/runner/workspace/contracts/contracts/automation/ChainlinkCompounder.sol": {
-      "lastModificationDate": 1776905394829,
-      "contentHash": "0501f85513b1a09f38cf219ec2cf97f8",
+      "lastModificationDate": 1777733154634,
+      "contentHash": "9695b371b46cd39a503a6496f92c0b9f",
       "sourceName": "contracts/automation/ChainlinkCompounder.sol",
       "solcConfig": {
         "version": "0.8.26",
@@ -2960,8 +2960,8 @@
       ]
     },
     "/home/runner/workspace/contracts/contracts/modules/TreasuryYieldManager.sol": {
-      "lastModificationDate": 1776904873411,
-      "contentHash": "73597c418293b3de8bb30fb42f7c329a",
+      "lastModificationDate": 1777733184385,
+      "contentHash": "0576ceaa3e9ec07c0b7d0ece853b3a59",
       "sourceName": "contracts/modules/TreasuryYieldManager.sol",
       "solcConfig": {
         "version": "0.8.26",
@@ -3044,8 +3044,8 @@
       ]
     },
     "/home/runner/workspace/contracts/contracts/access/VaultMultiSig.sol": {
-      "lastModificationDate": 1776905417010,
-      "contentHash": "871d215ee42a6ce8f5531cceeadf1a6b",
+      "lastModificationDate": 1777733285778,
+      "contentHash": "f1fccda8067c604327e05e410a5b7322",
       "sourceName": "contracts/access/VaultMultiSig.sol",
       "solcConfig": {
         "version": "0.8.26",

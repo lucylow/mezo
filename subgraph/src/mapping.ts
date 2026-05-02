@@ -4,7 +4,6 @@ import {
   Withdrawn,
   Compounded,
   FeeDistributed,
-  FeeRewardClaimed,
   FeeCollected,
   TreasuryStaked,
   RewardsClaimed,
@@ -96,7 +95,7 @@ function getOrCreateDailyMetric(timestamp: BigInt): DailyMetric {
   return metric;
 }
 
-// ── Vault handlers ────────────────────────────────────────────────────────
+// ── Vault event handlers ───────────────────────────────────────────────────
 
 export function handleDeposited(event: Deposited): void {
   let vault = getOrCreateVault();
@@ -220,7 +219,11 @@ export function handleFeeDistributed(event: FeeDistributed): void {
   metric.save();
 }
 
-export function handleFeeRewardClaimed(event: FeeRewardClaimed): void {
+/**
+ * Handles RewardsClaimed — emitted when a vveMEZO holder calls claimFeeRewards().
+ * This is the authoritative handler for user MUSD fee reward claims.
+ */
+export function handleRewardsClaimed(event: RewardsClaimed): void {
   let user = getOrCreateUser(event.params.user);
   user.totalRewardsClaimed = user.totalRewardsClaimed.plus(event.params.amount);
   user.updatedAt = event.block.timestamp;
@@ -267,24 +270,19 @@ export function handleTreasuryStaked(event: TreasuryStaked): void {
   entity.save();
 }
 
-export function handleRewardsClaimed(event: RewardsClaimed): void {
-  let user = getOrCreateUser(event.params.user);
-  user.totalRewardsClaimed = user.totalRewardsClaimed.plus(event.params.amount);
-  user.updatedAt = event.block.timestamp;
-  user.save();
-
-  let claim = new UserRewardClaim(
-    event.transaction.hash.toHexString() + "-RC-" + event.logIndex.toString()
-  );
-  claim.user = user.id;
-  claim.amount = event.params.amount;
-  claim.transactionHash = event.transaction.hash;
-  claim.blockNumber = event.block.number;
-  claim.timestamp = event.block.timestamp;
-  claim.save();
+export function handleGaugesVoted(event: GaugesVoted): void {
+  let id = event.transaction.hash.toHexString() + "-" + event.logIndex.toString();
+  let ev = new EpochVote(id);
+  ev.epochTimestamp = event.params.epochTimestamp;
+  ev.tokenCount = event.params.tokenCount;
+  ev.gaugeCount = event.params.gaugeCount;
+  ev.transactionHash = event.transaction.hash;
+  ev.blockNumber = event.block.number;
+  ev.timestamp = event.block.timestamp;
+  ev.save();
 }
 
-// ── Governor handlers ─────────────────────────────────────────────────────
+// ── Governor event handlers ────────────────────────────────────────────────
 
 export function handleProposalCreated(event: ProposalCreated): void {
   let proposal = new GovernanceProposal(event.params.proposalId.toString());
@@ -370,7 +368,7 @@ export function handleProposalQueued(event: ProposalQueued): void {
   proposal.save();
 }
 
-// ── Timelock handlers ─────────────────────────────────────────────────────
+// ── Timelock event handlers ────────────────────────────────────────────────
 
 export function handleCallScheduled(event: CallScheduled): void {
   let op = new TimelockOperation(event.params.id.toHexString());
@@ -399,18 +397,4 @@ export function handleCancelled(event: Cancelled): void {
   if (!op) return;
   op.status = "CANCELLED";
   op.save();
-}
-
-// ── Gauge vote handlers ───────────────────────────────────────────────────
-
-export function handleGaugesVoted(event: GaugesVoted): void {
-  let id = event.transaction.hash.toHexString() + "-" + event.logIndex.toString();
-  let ev = new EpochVote(id);
-  ev.epochTimestamp = event.params.epochTimestamp;
-  ev.tokenCount = event.params.tokenCount;
-  ev.gaugeCount = event.params.gaugeCount;
-  ev.transactionHash = event.transaction.hash;
-  ev.blockNumber = event.block.number;
-  ev.timestamp = event.block.timestamp;
-  ev.save();
 }

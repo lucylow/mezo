@@ -25,6 +25,7 @@ dataSources:
         - TreasuryStaked
         - UserRewardClaim
         - DailyMetric
+        - EpochVote
       abis:
         - name: VeMEZOAutoCompounder
           file: ./abis/VeMEZOAutoCompounder.json
@@ -37,14 +38,12 @@ dataSources:
           handler: handleCompounded
         - event: FeeDistributed(uint256,uint256,uint256)
           handler: handleFeeDistributed
-        - event: FeeRewardClaimed(indexed address,uint256)
-          handler: handleFeeRewardClaimed
+        - event: RewardsClaimed(indexed address,uint256)
+          handler: handleRewardsClaimed
         - event: FeeCollected(uint256,uint256,address)
           handler: handleFeeCollected
         - event: TreasuryStaked(uint256,uint256)
           handler: handleTreasuryStaked
-        - event: RewardsClaimed(indexed address,uint256)
-          handler: handleRewardsClaimed
         - event: GaugesVoted(indexed uint256,uint256,uint256)
           handler: handleGaugesVoted
       file: ./src/mapping.ts

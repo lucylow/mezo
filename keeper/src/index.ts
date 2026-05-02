@@ -24,6 +24,7 @@ import "dotenv/config";
 import { checkProfitability, formatProfitabilityResult } from "./profitability";
 import { notifyCompoundSuccess, notifyError, notifySkipped } from "./discord";
 import { runTreasuryDeployment, formatTreasuryStatus } from "./treasury";
+import { startWatcher } from "./watcher";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -213,6 +214,10 @@ cron.schedule("0 */6 * * *", () => {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 logger.info("Keeper bot started", { rpcUrl: RPC_URL, vaultAddress: VAULT_ADDRESS });
+
+// Start WebSocket event watcher for real-time monitoring alongside the cron.
+startWatcher(logger).catch((e) => logger.warn("Watcher failed to start", { err: e.message }));
+
 compound().catch((e) => logger.error(e));
 
 process.on("SIGINT",  () => { logger.info("Shutting down (SIGINT)");  process.exit(0); });
