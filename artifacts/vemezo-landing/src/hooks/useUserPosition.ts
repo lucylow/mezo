@@ -1,11 +1,15 @@
 import { useAccount } from "wagmi";
-import { useUserVaultPosition } from "./contracts/useVaultRead";
+import { useUserVaultPosition, useNFTUnlockTimes } from "./contracts/useVaultRead";
 import { useUserAPIPosition } from "./api/useVaultAPI";
 
 export interface NFTPosition {
   id:          string;
   amount:      number;
   unlockDate:  string;
+  /** Unix timestamp (seconds) when the vault's deposit lock expires. 0 = unknown/not deposited. */
+  depositUnlockAt: number;
+  /** True when the vault deposit lock period has NOT yet elapsed. */
+  depositLocked:   boolean;
 }
 
 export interface UserPosition {
@@ -30,6 +34,12 @@ const ZERO: UserPosition = {
   source: "disconnected",
 };
 
+/** Return seconds remaining until the deposit lock expires (≥0). */
+function lockSecondsLeft(unlockAt: number): number {
+  if (!unlockAt) return 0;
+  return Math.max(0, unlockAt - Math.floor(Date.now() / 1000));
+}
+
 /**
  * Unified user position hook with layered fallback:
  *   1. On-chain (wagmi)                — when VITE_VAULT_ADDRESS is set
@@ -42,20 +52,29 @@ export function useUserPosition(): UserPosition {
   const onChain = useUserVaultPosition(address);
   const api     = useUserAPIPosition(address);
 
+  // Fetch vault deposit-lock expiry times for all on-chain token IDs
+  const { unlockMap, isLoading: unlockLoading } = useNFTUnlockTimes(onChain.tokenIds);
+
   if (!isConnected || !address) return ZERO;
 
   // ── Loading ───────────────────────────────────────────────────────────────
-  if (onChain.isLoading || (api.isLoading && !api.data)) {
+  if (onChain.isLoading || unlockLoading || (api.isLoading && !api.data)) {
     return { ...ZERO, isLoading: true, source: "loading" };
   }
 
   // ── On-chain: deposited token IDs ─────────────────────────────────────────
   if (onChain.tokenIds.length > 0) {
-    const nftsLocked: NFTPosition[] = onChain.tokenIds.map((tid) => ({
-      id:         tid.toString(),
-      amount:     0,     // needs a second read per token; filled in by useVeMEZONFTs
-      unlockDate: "—",
-    }));
+    const nowSec = Math.floor(Date.now() / 1000);
+    const nftsLocked: NFTPosition[] = onChain.tokenIds.map((tid) => {
+      const depositUnlockAt = unlockMap[tid.toString()] ?? 0;
+      return {
+        id:              tid.toString(),
+        amount:          0,
+        unlockDate:      "—",
+        depositUnlockAt,
+        depositLocked:   depositUnlockAt > 0 && depositUnlockAt > nowSec,
+      };
+    });
     return {
       shares:        0,
       vaultShares:   0,
@@ -74,8 +93,10 @@ export function useUserPosition(): UserPosition {
   if (api.data) {
     const nftsLocked: NFTPosition[] = api.data.tokenIds.map((id) => ({
       id,
-      amount:     0,
-      unlockDate: "—",
+      amount:          0,
+      unlockDate:      "—",
+      depositUnlockAt: 0,
+      depositLocked:   false,
     }));
     return {
       shares:        api.data.shareBalance,
@@ -93,14 +114,14 @@ export function useUserPosition(): UserPosition {
 
   // ── API error with no cached data ─────────────────────────────────────────
   if (api.isError) {
-    return {
-      ...ZERO,
-      isError: true,
-      source:  "error",
-    };
+    return { ...ZERO, isError: true, source: "error" };
   }
 
   // ── Mock data (connected, pre-deployment, API not yet indexing) ───────────
+  const nowSec = Math.floor(Date.now() / 1000);
+  // Simulate NFT #1042 still locked (unlocks 7 days from now), #2891 unlocked
+  const mockUnlock1 = nowSec + 7 * 24 * 3600;
+  const mockUnlock2 = nowSec - 3600; // already past
   return {
     shares:        1250,
     vaultShares:   1250,
@@ -108,12 +129,31 @@ export function useUserPosition(): UserPosition {
     earnedMEZO:    154.2,
     earnedRewards: 154.2,
     nftsLocked: [
-      { id: "1042", amount: 500,  unlockDate: "2025-12-01" },
-      { id: "2891", amount: 750,  unlockDate: "2026-06-15" },
+      {
+        id: "1042", amount: 500,  unlockDate: "2025-12-01",
+        depositUnlockAt: mockUnlock1,
+        depositLocked:   true,
+      },
+      {
+        id: "2891", amount: 750,  unlockDate: "2026-06-15",
+        depositUnlockAt: mockUnlock2,
+        depositLocked:   false,
+      },
     ],
     tokenIds:  ["1042", "2891"],
     isLoading: false,
     isError:   false,
     source:    "mock",
   };
+}
+
+/** Format seconds remaining as "Xd Xh Xm" */
+export function formatLockCountdown(secondsLeft: number): string {
+  if (secondsLeft <= 0) return "Unlocked";
+  const d = Math.floor(secondsLeft / 86_400);
+  const h = Math.floor((secondsLeft % 86_400) / 3_600);
+  const m = Math.floor((secondsLeft % 3_600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
 }

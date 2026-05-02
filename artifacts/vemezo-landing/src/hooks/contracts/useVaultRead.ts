@@ -64,3 +64,64 @@ export function useUserVaultPosition(address?: `0x${string}`) {
     refetch,
   };
 }
+
+/**
+ * Reads vault security parameters: deposit lock duration, swap slippage cap,
+ * compound cooldown interval, and the primary keeper address.
+ */
+export function useVaultSecurityParams() {
+  const deployed = isContractDeployed();
+
+  const { data, isLoading } = useReadContracts({
+    contracts: [
+      { address: CONTRACTS.VAULT, abi: VeMEZOVaultABI, functionName: "minDepositDuration" },
+      { address: CONTRACTS.VAULT, abi: VeMEZOVaultABI, functionName: "swapSlippageBps" },
+      { address: CONTRACTS.VAULT, abi: VeMEZOVaultABI, functionName: "minCompoundInterval" },
+      { address: CONTRACTS.VAULT, abi: VeMEZOVaultABI, functionName: "keeper" },
+    ],
+    query: { enabled: deployed },
+  });
+
+  const minDepositDurationRaw = data?.[0]?.result as bigint | undefined;
+  const swapSlippageBpsRaw    = data?.[1]?.result as bigint | undefined;
+  const minCompoundIntervalRaw = data?.[2]?.result as bigint | undefined;
+  const keeper                = data?.[3]?.result as `0x${string}` | undefined;
+
+  return {
+    /** Minimum vault deposit duration in seconds before withdrawal is allowed (default 7 days = 604800). */
+    minDepositDuration:  minDepositDurationRaw  ? Number(minDepositDurationRaw)  : 604_800,
+    /** Swap slippage cap in basis points (default 100 = 1%). */
+    swapSlippageBps:     swapSlippageBpsRaw     ? Number(swapSlippageBpsRaw)     : 100,
+    /** Minimum seconds between compound executions (default 3600 = 1 hr). */
+    minCompoundInterval: minCompoundIntervalRaw ? Number(minCompoundIntervalRaw) : 3_600,
+    /** Primary keeper address. */
+    keeper,
+    isLoading: deployed ? isLoading : false,
+  };
+}
+
+/**
+ * Reads `depositUnlockTime(tokenId)` for each provided token ID.
+ * Returns a map from tokenId (string) → unix timestamp (number, 0 = not deposited).
+ */
+export function useNFTUnlockTimes(tokenIds: bigint[]) {
+  const deployed = isContractDeployed();
+
+  const { data, isLoading } = useReadContracts({
+    contracts: tokenIds.map((tid) => ({
+      address: CONTRACTS.VAULT,
+      abi:     VeMEZOVaultABI,
+      functionName: "depositUnlockTime" as const,
+      args:    [tid],
+    })),
+    query: { enabled: deployed && tokenIds.length > 0 },
+  });
+
+  const unlockMap: Record<string, number> = {};
+  tokenIds.forEach((tid, i) => {
+    const raw = data?.[i]?.result as bigint | undefined;
+    unlockMap[tid.toString()] = raw ? Number(raw) : 0;
+  });
+
+  return { unlockMap, isLoading: deployed && tokenIds.length > 0 ? isLoading : false };
+}

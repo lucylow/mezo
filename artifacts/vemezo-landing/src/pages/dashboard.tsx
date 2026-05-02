@@ -1,15 +1,17 @@
 import { useVaultStats } from "@/hooks/useVaultStats";
 import { useUserPosition } from "@/hooks/useUserPosition";
 import { useWallet } from "@/hooks/useWallet";
+import { useVaultActivityFeed } from "@/hooks/api/useVaultAPI";
 import { Button } from "@/components/ui/button";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Badge } from "@/components/ui/Badge";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Clock, TrendingUp, Users, Coins, ShieldCheck, Wallet, Zap, ArrowUpRight, ArrowDownRight, RefreshCw } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { useState, useEffect } from "react";
+import { Clock, TrendingUp, Users, Coins, ShieldCheck, Wallet, Zap, ArrowUpRight, ArrowDownRight, RefreshCw, Loader2 } from "lucide-react";
+import { cn, formatNumber } from "@/lib/utils";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { staggerContainer, staggerItem, pageTransition, cardHoverProps } from "@/lib/animations";
+import { Link } from "wouter";
 
 const mockSimulationData = [
   { day: 0,   balance: 1000 },
@@ -22,13 +24,36 @@ const mockSimulationData = [
   { day: 365, balance: 2180 },
 ];
 
-const mockActivity = [
-  { id: 1, type: "deposit",  amount: "1,200 MEZO", time: "10 mins ago",  address: "0x4a...2f1" },
-  { id: 2, type: "compound", amount: "45 MEZO",    time: "1 hour ago",   address: "Vault" },
-  { id: 3, type: "withdraw", amount: "500 MEZO",   time: "2 hours ago",  address: "0x9b...1e3" },
-  { id: 4, type: "deposit",  amount: "3,450 MEZO", time: "5 hours ago",  address: "0x1c...8a4" },
-  { id: 5, type: "deposit",  amount: "800 MEZO",   time: "12 hours ago", address: "0x7d...4c2" },
+const FALLBACK_ACTIVITY = [
+  { id: "f1", type: "deposit",  amount: "1,200 MEZO", time: "10 mins ago",  address: "0x4a...2f1" },
+  { id: "f2", type: "compound", amount: "45 MEZO",    time: "1 hour ago",   address: "Vault" },
+  { id: "f3", type: "withdraw", amount: "500 MEZO",   time: "2 hours ago",  address: "0x9b...1e3" },
+  { id: "f4", type: "deposit",  amount: "3,450 MEZO", time: "5 hours ago",  address: "0x1c...8a4" },
+  { id: "f5", type: "deposit",  amount: "800 MEZO",   time: "12 hours ago", address: "0x7d...4c2" },
 ];
+
+/** Returns seconds until the next Thursday 00:05 UTC (epoch boundary). */
+function computeEpochSecondsLeft(): number {
+  const now = Date.now();
+  const nowDate = new Date(now);
+  const day = nowDate.getUTCDay(); // 0=Sun, 4=Thu
+  const daysUntilThursday = (4 - day + 7) % 7;
+  const candidate = new Date(now);
+  candidate.setUTCDate(nowDate.getUTCDate() + daysUntilThursday);
+  candidate.setUTCHours(0, 5, 0, 0);
+  // If candidate is already in the past (or within this second), roll forward 7 days
+  if (candidate.getTime() <= now) {
+    candidate.setUTCDate(candidate.getUTCDate() + 7);
+  }
+  return Math.max(0, Math.floor((candidate.getTime() - now) / 1000));
+}
+
+/** Compute what percentage of the current 7-day epoch has elapsed. */
+function computeEpochProgress(): number {
+  const totalEpoch = 7 * 24 * 3600;
+  const remaining  = computeEpochSecondsLeft();
+  return Math.round(((totalEpoch - remaining) / totalEpoch) * 100);
+}
 
 function ActivityIcon({ type }: { type: string }) {
   const cfg = {
@@ -54,24 +79,53 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
+/** Format a relative time string from a unix timestamp (seconds). */
+function relativeTime(ts: number): string {
+  const diff = Math.floor(Date.now() / 1000) - ts;
+  if (diff < 60)   return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
 export default function Dashboard() {
   const stats = useVaultStats();
   const { isConnected } = useWallet();
   const position = useUserPosition();
-  const [timeLeft, setTimeLeft] = useState(3 * 24 * 60 * 60 + 14 * 60 * 60);
+  const activityFeed = useVaultActivityFeed();
 
-  useEffect(() => {
-    const t = setInterval(() => setTimeLeft(p => (p > 0 ? p - 1 : 0)), 1000);
-    return () => clearInterval(t);
+  const [timeLeft, setTimeLeft] = useState(computeEpochSecondsLeft);
+  const [epochProgress, setEpochProgress] = useState(computeEpochProgress);
+
+  const tick = useCallback(() => {
+    setTimeLeft(computeEpochSecondsLeft());
+    setEpochProgress(computeEpochProgress());
   }, []);
 
+  useEffect(() => {
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, [tick]);
+
   const formatTime = (s: number) => {
-    const d = Math.floor(s / 86400);
-    const h = Math.floor((s % 86400) / 3600);
-    const m = Math.floor((s % 3600) / 60);
+    const d   = Math.floor(s / 86400);
+    const h   = Math.floor((s % 86400) / 3600);
+    const m   = Math.floor((s % 3600) / 60);
     const sec = s % 60;
     return `${d}d ${h}h ${m}m ${sec}s`;
   };
+
+  // Build activity items: prefer live API data, fall back to mock
+  const activityItems: Array<{ id: string; type: string; amount: string; time: string; address: string }> =
+    activityFeed.data && activityFeed.data.length > 0
+      ? activityFeed.data.slice(0, 5).map((item: any, i: number) => ({
+          id:      item.txHash ?? `api-${i}`,
+          type:    item.type ?? "compound",
+          amount:  item.amount ? `${Number(item.amount).toLocaleString()} MEZO` : "—",
+          time:    item.timestamp ? relativeTime(Number(item.timestamp)) : "—",
+          address: item.address ? `${item.address.slice(0, 6)}...${item.address.slice(-4)}` : "Vault",
+        }))
+      : FALLBACK_ACTIVITY;
 
   const STATS = [
     {
@@ -144,7 +198,7 @@ export default function Dashboard() {
         <div className="flex items-center gap-2 bg-black/40 backdrop-blur-sm border border-white/10 rounded-full px-4 py-2">
           <Clock className="h-4 w-4 text-primary animate-pulse" />
           <span className="text-sm font-mono font-medium">
-            Next Epoch in:{" "}
+            Next Epoch:{" "}
             <span className="text-primary">{formatTime(timeLeft)}</span>
           </span>
         </div>
@@ -166,7 +220,6 @@ export default function Dashboard() {
               {...cardHoverProps}
               className="card-hover relative overflow-hidden rounded-2xl border border-white/8 bg-black/40 backdrop-blur-sm p-5"
             >
-              {/* Subtle glow in corner */}
               <div className={cn("absolute -top-6 -right-6 w-20 h-20 rounded-full blur-2xl opacity-30", s.bg)} />
               <div className="flex items-center justify-between mb-4">
                 <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{s.label}</span>
@@ -176,11 +229,7 @@ export default function Dashboard() {
               </div>
               <div className={cn("text-2xl font-bold mb-1.5", s.color)}>
                 {s.prefix}
-                <AnimatedNumber
-                  value={s.value}
-                  decimals={s.decimals}
-                  className=""
-                />
+                <AnimatedNumber value={s.value} decimals={s.decimals} className="" />
                 {s.suffix}
               </div>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -246,9 +295,9 @@ export default function Dashboard() {
               >
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label: "Vault Shares",     value: position.vaultShares.toLocaleString(), unit: "veMEZO" },
-                    { label: "Earned Rewards",   value: position.earnedRewards.toLocaleString(), unit: "MEZO" },
-                    { label: "Locked Until",     value: "Day 180", unit: "" },
+                    { label: "Vault Shares",   value: position.vaultShares.toLocaleString(), unit: "veMEZO" },
+                    { label: "Earned Rewards", value: position.earnedRewards.toLocaleString(), unit: "MEZO" },
+                    { label: "NFTs in Vault",  value: String(position.nftsLocked.length), unit: "positions" },
                   ].map(item => (
                     <div key={item.label} className="rounded-xl bg-white/4 border border-white/6 p-3">
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">{item.label}</p>
@@ -260,13 +309,13 @@ export default function Dashboard() {
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>Epoch progress</span>
-                    <span className="text-primary font-medium">62%</span>
+                    <span className="text-primary font-medium">{epochProgress}%</span>
                   </div>
                   <div className="h-2 bg-white/6 rounded-full overflow-hidden">
                     <motion.div
                       className="h-full rounded-full bg-gradient-to-r from-primary to-orange-500"
                       initial={{ width: 0 }}
-                      animate={{ width: "62%" }}
+                      animate={{ width: `${epochProgress}%` }}
                       transition={{ duration: 0.8, ease: "easeOut", delay: 0.3 }}
                     />
                   </div>
@@ -286,10 +335,17 @@ export default function Dashboard() {
         >
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold">Recent Activity</h3>
-            <button className="text-xs text-primary hover:underline">View all →</button>
+            <div className="flex items-center gap-2">
+              {activityFeed.isFetching && (
+                <Loader2 className="h-3 w-3 text-muted-foreground animate-spin" />
+              )}
+              <Link href="/history">
+                <span className="text-xs text-primary hover:underline cursor-pointer">View all →</span>
+              </Link>
+            </div>
           </div>
           <div className="space-y-3">
-            {mockActivity.map((tx, i) => (
+            {activityItems.map((tx, i) => (
               <motion.div
                 key={tx.id}
                 initial={{ opacity: 0, x: 8 }}
@@ -327,7 +383,7 @@ export default function Dashboard() {
             <h3 className="font-semibold">Compounding Simulation</h3>
             <p className="text-xs text-muted-foreground mt-0.5">Projected growth on $1,000 at current APR</p>
           </div>
-          <Badge variant="default" dot dotColor="bg-primary">78% APR</Badge>
+          <Badge variant="default" dot dotColor="bg-primary">{stats.projectedAPR}% APR</Badge>
         </div>
         <ResponsiveContainer width="100%" height={220}>
           <AreaChart data={mockSimulationData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
@@ -386,8 +442,8 @@ export default function Dashboard() {
           },
           {
             icon: "🛡️",
-            title: "Audited Protocol",
-            desc: "Fully audited by leading Web3 security firms.",
+            title: "Multi-Keeper Security",
+            desc: "Distributed keeper registry with 7-day deposit lock and compound cooldowns.",
           },
         ].map((item, i) => (
           <motion.div

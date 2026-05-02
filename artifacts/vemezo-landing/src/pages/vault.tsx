@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAccount } from "wagmi";
 import { parseEther } from "viem";
-import { useUserPosition } from "@/hooks/useUserPosition";
+import { useUserPosition, formatLockCountdown } from "@/hooks/useUserPosition";
 import { useVaultStats } from "@/hooks/useVaultStats";
+import { useVaultSecurityParams } from "@/hooks/contracts/useVaultRead";
 import { useWallet } from "@/hooks/useWallet";
 import { useDeposit, useWithdraw } from "@/hooks/contracts/useVaultWrite";
 import { useVeMEZONFTs } from "@/hooks/contracts/useVeMEZOData";
@@ -19,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/Badge";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
-import { Info, Lock, ArrowDownToLine, ArrowUpFromLine, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { Info, Lock, ArrowDownToLine, ArrowUpFromLine, AlertCircle, Clock, Loader2, ShieldCheck } from "lucide-react";
 import { motion } from "framer-motion";
 import { pageTransition, staggerContainer, staggerItem, cardHoverProps } from "@/lib/animations";
 import { FeeDisplay } from "@/components/vault/FeeDisplay";
@@ -27,21 +28,41 @@ import { CompoundingSimulator } from "@/components/vault/CompoundingSimulator";
 import { PositionOverview } from "@/components/vault/PositionOverview";
 import { BoostCalculator } from "@/components/vault/BoostCalculator";
 import { EpochTimer } from "@/components/vault/EpochTimer";
+import { cn } from "@/lib/utils";
 
 const MOCK_AVAILABLE_NFTS = [
   { id: "4092", amount: 1200, unlockDate: "2026-01-01" },
   { id: "8821", amount: 450,  unlockDate: "2025-10-15" },
 ];
 
+/** Format seconds remaining as a human-readable duration string. */
+function fmtDuration(seconds: number): string {
+  if (seconds <= 0) return "0s";
+  const d = Math.floor(seconds / 86_400);
+  const h = Math.floor((seconds % 86_400) / 3_600);
+  const m = Math.floor((seconds % 3_600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
 export default function Vault() {
   const { address } = useAccount();
   const { isConnected } = useWallet();
   const position = useUserPosition();
   const stats    = useVaultStats();
+  const security = useVaultSecurityParams();
   const deployed = isContractDeployed();
 
+  // Live countdown for deposit-lock timers
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 10_000);
+    return () => clearInterval(t);
+  }, []);
+
   // ── Contract write hooks ────────────────────────────────────────────────
-  const { deposit, depositBatch, isPending: isDepositing } = useDeposit();
+  const { deposit, isPending: isDepositing } = useDeposit();
   const { withdraw, withdrawByShares, isPending: isWithdrawing } = useWithdraw();
 
   // ── Real-time event watcher (no-op pre-deployment) ──────────────────────
@@ -112,6 +133,11 @@ export default function Vault() {
     { name: "Others",      value: othersShares },
   ];
   const COLORS = ["hsl(var(--primary))", "rgba(255,255,255,0.1)"];
+
+  // Security param display values
+  const depositLockDays    = Math.round(security.minDepositDuration / 86_400);
+  const slippagePct        = (security.swapSlippageBps / 100).toFixed(2);
+  const cooldownHrs        = Math.round(security.minCompoundInterval / 3_600);
 
   return (
     <motion.div
@@ -187,8 +213,16 @@ export default function Vault() {
                         </Select>
                         <p className="text-xs text-muted-foreground flex items-center gap-1 mt-2">
                           <Info className="w-3 h-3" />
-                          Depositing transfers the NFT to the vault contract.
+                          Depositing transfers the NFT to the vault contract. A {depositLockDays}-day withdrawal lock applies.
                         </p>
+                      </div>
+
+                      {/* Deposit lock notice */}
+                      <div className="flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs">
+                        <Lock className="h-3.5 w-3.5 mt-0.5 text-primary shrink-0" />
+                        <div className="text-muted-foreground">
+                          <span className="text-primary font-medium">{depositLockDays}-day deposit lock</span> — after depositing, your NFT cannot be withdrawn for {depositLockDays} days. This prevents flash-loan attacks and MEV exploitation.
+                        </div>
                       </div>
 
                       <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 space-y-2">
@@ -284,23 +318,60 @@ export default function Vault() {
                         <div className="pt-2">
                           <Label className="text-xs text-muted-foreground mb-2 block">Or withdraw a specific NFT</Label>
                           <div className="space-y-2">
-                            {position.nftsLocked.map(nft => (
-                              <div key={nft.id} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
-                                <div>
-                                  <p className="text-sm font-medium text-primary font-mono">#{nft.id}</p>
-                                  <p className="text-xs text-muted-foreground">Locked: {nft.unlockDate}</p>
-                                </div>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="border-white/10 hover:bg-white/5 h-8 text-xs"
-                                  onClick={() => handleWithdrawNFT(nft.id)}
-                                  disabled={!deployed || isWithdrawing}
+                            {position.nftsLocked.map(nft => {
+                              const unlockSecsLeft = nft.depositUnlockAt > 0 ? Math.max(0, nft.depositUnlockAt - now) : 0;
+                              const isLocked = nft.depositLocked && unlockSecsLeft > 0;
+                              return (
+                                <div
+                                  key={nft.id}
+                                  className={cn(
+                                    "flex items-center justify-between p-3 rounded-xl border",
+                                    isLocked
+                                      ? "bg-yellow-500/5 border-yellow-500/20"
+                                      : "bg-white/5 border-white/5",
+                                  )}
                                 >
-                                  Withdraw
-                                </Button>
-                              </div>
-                            ))}
+                                  <div>
+                                    <p className="text-sm font-medium text-primary font-mono">#{nft.id}</p>
+                                    {isLocked ? (
+                                      <div className="flex items-center gap-1 mt-0.5">
+                                        <Clock className="h-3 w-3 text-yellow-400" />
+                                        <p className="text-xs text-yellow-400">
+                                          Locked — {fmtDuration(unlockSecsLeft)} remaining
+                                        </p>
+                                      </div>
+                                    ) : (
+                                      <p className="text-xs text-green-400 flex items-center gap-1 mt-0.5">
+                                        <ShieldCheck className="h-3 w-3" />
+                                        Available to withdraw
+                                      </p>
+                                    )}
+                                  </div>
+                                  <div className="text-right flex flex-col items-end gap-1.5">
+                                    {nft.amount > 0 && (
+                                      <p className="text-xs text-muted-foreground">{nft.amount.toLocaleString()} MEZO</p>
+                                    )}
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className={cn(
+                                        "h-8 text-xs",
+                                        isLocked
+                                          ? "border-white/5 text-muted-foreground opacity-50 cursor-not-allowed"
+                                          : "border-white/10 hover:bg-white/5",
+                                      )}
+                                      onClick={() => !isLocked && handleWithdrawNFT(nft.id)}
+                                      disabled={!deployed || isWithdrawing || isLocked}
+                                      title={isLocked ? `Withdrawal locked for ${fmtDuration(unlockSecsLeft)}` : "Withdraw this NFT"}
+                                    >
+                                      {isLocked ? (
+                                        <><Lock className="h-3 w-3 mr-1" />Locked</>
+                                      ) : "Withdraw"}
+                                    </Button>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       )}
@@ -373,39 +444,71 @@ export default function Vault() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {position.nftsLocked.map(nft => (
-                    <div key={nft.id} className="flex justify-between items-center p-3 rounded-lg bg-white/5 border border-white/5">
-                      <div>
-                        <p className="text-sm font-medium text-primary font-mono">#{nft.id}</p>
-                        <p className="text-xs text-muted-foreground">Locked: {nft.unlockDate}</p>
+                  {position.nftsLocked.map(nft => {
+                    const unlockSecsLeft = nft.depositUnlockAt > 0 ? Math.max(0, nft.depositUnlockAt - now) : 0;
+                    const isLocked = nft.depositLocked && unlockSecsLeft > 0;
+                    return (
+                      <div
+                        key={nft.id}
+                        className={cn(
+                          "flex justify-between items-center p-3 rounded-lg border",
+                          isLocked ? "bg-yellow-500/5 border-yellow-500/15" : "bg-white/5 border-white/5"
+                        )}
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-primary font-mono">#{nft.id}</p>
+                          {isLocked ? (
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <Clock className="h-3 w-3 text-yellow-400" />
+                              <p className="text-xs text-yellow-400">{fmtDuration(unlockSecsLeft)} until withdraw</p>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-green-400 flex items-center gap-1 mt-0.5">
+                              <ShieldCheck className="h-3 w-3" /> Withdrawable
+                            </p>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          {nft.amount > 0 && (
+                            <p className="text-sm font-medium">{nft.amount.toLocaleString()} MEZO</p>
+                          )}
+                          {isLocked ? (
+                            <Badge variant="warning" size="sm" className="mt-1">Locked</Badge>
+                          ) : (
+                            <Badge variant="success" size="sm" className="mt-1">Ready</Badge>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-sm font-medium">{nft.amount.toLocaleString()} MEZO</p>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
           </Card>
 
-          {/* Vault stats mini-card */}
+          {/* Vault stats + security params mini-card */}
           <Card className="bg-black/40 backdrop-blur-sm border-white/10 rounded-2xl">
             <CardHeader>
-              <CardTitle className="text-lg">Vault Stats</CardTitle>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-primary" />
+                Vault Security
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {[
-                { label: "Total Shares",  value: stats.totalShares.toLocaleString() },
-                { label: "Perf. Fee",     value: `${stats.performanceFee}%` },
-                { label: "Pending Rewards", value: `${stats.pendingRewards.toLocaleString()} MEZO` },
+                { label: "Total Shares",   value: stats.totalShares.toLocaleString() },
+                { label: "Perf. Fee",      value: `${stats.performanceFee}%` },
+                { label: "Pending Rewards",value: `${stats.pendingRewards.toLocaleString()} MEZO` },
+                { label: "Deposit Lock",   value: `${depositLockDays}d` },
+                { label: "Swap Slippage",  value: `${slippagePct}%` },
+                { label: "Compound Cooldown", value: `${cooldownHrs}h` },
               ].map(item => (
                 <div key={item.label} className="flex justify-between text-sm">
                   <span className="text-muted-foreground">{item.label}</span>
                   <span className="font-medium font-mono">{item.value}</span>
                 </div>
               ))}
-              <div className="flex items-center gap-1.5 pt-1">
+              <div className="flex items-center gap-1.5 pt-1 border-t border-white/5">
                 <div className={`w-2 h-2 rounded-full ${deployed ? "bg-green-400" : "bg-yellow-400"}`} />
                 <span className="text-xs text-muted-foreground">
                   {deployed ? "Live on-chain" : `Mock data (${stats.source})`}

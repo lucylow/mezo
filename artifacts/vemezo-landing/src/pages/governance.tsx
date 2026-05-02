@@ -75,6 +75,51 @@ const STATUS_STYLES: Record<string, string> = {
 
 const TABS = ["active", "passed", "failed", "all"] as const;
 
+const ROADMAP = [
+  {
+    phase: "Phase 1",
+    title: "Gelato Keeper",
+    desc: "Single-node keeper replaced with Gelato Network's decentralized executor network.",
+    done: true,
+  },
+  {
+    phase: "Phase 2",
+    title: "Timelock Governance",
+    desc: "All vault parameter changes require a governance vote + 2-day timelock delay.",
+    done: true,
+  },
+  {
+    phase: "Phase 3",
+    title: "Fee Distribution",
+    desc: "50% of performance fees distributed proportionally to vveMEZO holders. Claimable any time.",
+    done: true,
+  },
+  {
+    phase: "Phase 4",
+    title: "Multi-Sig Emergency",
+    desc: "Emergency controls require 3-of-5 guardian approvals, eliminating single-owner risk.",
+    done: true,
+  },
+  {
+    phase: "Phase 5",
+    title: "Multi-Keeper Registry",
+    desc: "On-chain registry of authorized keepers (authorizedKeepers mapping). Any whitelisted address can trigger compounding — eliminates single-point-of-failure for automation.",
+    done: true,
+  },
+  {
+    phase: "Phase 6",
+    title: "Subgraph Transparency",
+    desc: "Full on-chain indexing of governance votes, fee distributions, timelock operations, and keeper events via Goldsky subgraph.",
+    done: true,
+  },
+  {
+    phase: "Phase 7",
+    title: "Proxy Upgradeability",
+    desc: "Governance-controlled upgrade proxy pattern — future enhancements require on-chain votes.",
+    done: false,
+  },
+];
+
 export default function Governance() {
   const { isConnected } = useWallet();
   const {
@@ -125,9 +170,9 @@ export default function Governance() {
             50% of performance fees are distributed proportionally to vveMEZO holders.
           </p>
         </div>
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
           <span className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-400/10 text-green-400 border border-green-400/20">
-            <Zap className="h-3 w-3" /> Gelato keeper active
+            <Zap className="h-3 w-3" /> Multi-keeper active
           </span>
           <span className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
             <Shield className="h-3 w-3" /> Timelock enabled
@@ -368,45 +413,8 @@ export default function Governance() {
           <CardTitle>Decentralization Roadmap</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[
-              {
-                phase: "Phase 1",
-                title: "Gelato Keeper",
-                desc: "Single-node keeper replaced with Gelato Network's decentralized executor network.",
-                done: true,
-              },
-              {
-                phase: "Phase 2",
-                title: "Timelock Governance",
-                desc: "All vault parameter changes require a governance vote + 2-day timelock delay.",
-                done: true,
-              },
-              {
-                phase: "Phase 3",
-                title: "Fee Distribution",
-                desc: "50% of performance fees distributed proportionally to vveMEZO holders. Claimable any time.",
-                done: true,
-              },
-              {
-                phase: "Phase 4",
-                title: "Multi-Sig Emergency",
-                desc: "Emergency controls require 3-of-5 guardian approvals, eliminating single-owner risk.",
-                done: true,
-              },
-              {
-                phase: "Phase 5",
-                title: "Subgraph Transparency",
-                desc: "Full on-chain indexing of governance votes, fee distributions, and timelock operations.",
-                done: true,
-              },
-              {
-                phase: "Phase 6",
-                title: "Proxy Upgradeability",
-                desc: "Governance-controlled upgrade proxy pattern — future enhancements require on-chain votes.",
-                done: false,
-              },
-            ].map(({ phase, title, desc, done }) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {ROADMAP.map(({ phase, title, desc, done }) => (
               <div
                 key={phase}
                 className={cn(

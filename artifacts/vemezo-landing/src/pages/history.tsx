@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useWallet } from "@/hooks/useWallet";
+import { useTransactionStore } from "@/store/transactionStore";
+import { useVaultActivityFeed } from "@/hooks/api/useVaultAPI";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, ArrowUp, RefreshCw, Search, ExternalLink, Wallet } from "lucide-react";
+import { ArrowDown, ArrowUp, RefreshCw, Search, ExternalLink, Wallet, Loader2 } from "lucide-react";
 import { cn, formatDate, formatNumber, shortenAddress } from "@/lib/utils";
 
 type TxType = "deposit" | "withdraw" | "compound" | "swap" | "claim";
 
-interface Transaction {
+interface DisplayTx {
   hash: string;
   type: TxType;
   amount: number;
@@ -15,17 +17,6 @@ interface Transaction {
   timestamp: Date;
   status: "completed" | "pending" | "failed";
 }
-
-const TRANSACTIONS: Transaction[] = [
-  { hash: "0x4a2f1...", type: "deposit",  amount: 1200,  token: "MEZO",    timestamp: new Date(Date.now() - 600_000),    status: "completed" },
-  { hash: "0x1c...8a4", type: "compound", amount: 45,    token: "MEZO",    timestamp: new Date(Date.now() - 3_600_000),  status: "completed" },
-  { hash: "0x9b...1e3", type: "withdraw", amount: 500,   token: "vveMEZO", timestamp: new Date(Date.now() - 7_200_000),  status: "completed" },
-  { hash: "0x7d...4c2", type: "deposit",  amount: 800,   token: "MEZO",    timestamp: new Date(Date.now() - 43_200_000), status: "completed" },
-  { hash: "0xfe...cafe", type: "swap",    amount: 100,   token: "MUSD",    timestamp: new Date(Date.now() - 86_400_000), status: "completed" },
-  { hash: "0xde...ad",  type: "claim",   amount: 25.8,  token: "MEZO",    timestamp: new Date(Date.now() - 172_800_000),status: "completed" },
-  { hash: "0xba...be",  type: "deposit", amount: 3450,  token: "MEZO",    timestamp: new Date(Date.now() - 259_200_000),status: "completed" },
-  { hash: "0xca...fe",  type: "compound",amount: 38.4,  token: "MEZO",    timestamp: new Date(Date.now() - 345_600_000),status: "completed" },
-];
 
 const TYPE_META: Record<TxType, { icon: React.ElementType; color: string; label: string; sign: string }> = {
   deposit:  { icon: ArrowDown,  color: "text-green-400 bg-green-400/10",  label: "Deposit",  sign: "+" },
@@ -37,10 +28,31 @@ const TYPE_META: Record<TxType, { icon: React.ElementType; color: string; label:
 
 const FILTER_OPTS = ["all", "deposit", "withdraw", "compound", "swap", "claim"] as const;
 
+const MOCK_TRANSACTIONS: DisplayTx[] = [
+  { hash: "0x4a2f1...", type: "deposit",  amount: 1200,  token: "MEZO",    timestamp: new Date(Date.now() - 600_000),    status: "completed" },
+  { hash: "0x1c...8a4", type: "compound", amount: 45,    token: "MEZO",    timestamp: new Date(Date.now() - 3_600_000),  status: "completed" },
+  { hash: "0x9b...1e3", type: "withdraw", amount: 500,   token: "vveMEZO", timestamp: new Date(Date.now() - 7_200_000),  status: "completed" },
+  { hash: "0x7d...4c2", type: "deposit",  amount: 800,   token: "MEZO",    timestamp: new Date(Date.now() - 43_200_000), status: "completed" },
+  { hash: "0xfe...cafe", type: "swap",    amount: 100,   token: "MUSD",    timestamp: new Date(Date.now() - 86_400_000), status: "completed" },
+  { hash: "0xde...ad",  type: "claim",   amount: 25.8,  token: "MEZO",    timestamp: new Date(Date.now() - 172_800_000),status: "completed" },
+  { hash: "0xba...be",  type: "deposit", amount: 3450,  token: "MEZO",    timestamp: new Date(Date.now() - 259_200_000),status: "completed" },
+  { hash: "0xca...fe",  type: "compound",amount: 38.4,  token: "MEZO",    timestamp: new Date(Date.now() - 345_600_000),status: "completed" },
+];
+
+/** Parse a tx type string coming from the API/store into a valid TxType. */
+function coerceType(t: string): TxType {
+  if (t === "deposit" || t === "withdraw" || t === "compound" || t === "swap" || t === "claim") return t;
+  return "compound";
+}
+
 export default function History() {
   const { isConnected, connect } = useWallet();
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [activeTab, setActiveTab] = useState<"personal" | "protocol">("personal");
+
+  const { transactions: storeTxs } = useTransactionStore();
+  const activityFeed = useVaultActivityFeed();
 
   if (!isConnected) {
     return (
@@ -63,7 +75,35 @@ export default function History() {
     );
   }
 
-  const filtered = TRANSACTIONS.filter(tx => {
+  // Personal: wallet's own tx store — fall back to mock when empty (pre-deployment)
+  const personalTxs: DisplayTx[] =
+    storeTxs.length > 0
+      ? storeTxs.map(tx => ({
+          hash:      tx.hash,
+          type:      coerceType(tx.type),
+          amount:    tx.amount ? parseFloat(tx.amount) : 0,
+          token:     "MEZO",
+          timestamp: new Date(tx.timestamp),
+          status:    tx.status === "confirmed" ? "completed" : tx.status === "failed" ? "failed" : "pending",
+        }))
+      : MOCK_TRANSACTIONS;
+
+  // Protocol: live activity feed from API, reformatted
+  const protocolTxs: DisplayTx[] =
+    activityFeed.data && activityFeed.data.length > 0
+      ? activityFeed.data.map((item: any, i: number) => ({
+          hash:      item.txHash ?? `0xapi${i}`,
+          type:      coerceType(item.type ?? "compound"),
+          amount:    item.amount ? Number(item.amount) : 0,
+          token:     "MEZO",
+          timestamp: item.timestamp ? new Date(Number(item.timestamp) * 1000) : new Date(),
+          status:    "completed" as const,
+        }))
+      : MOCK_TRANSACTIONS;
+
+  const source = activeTab === "personal" ? personalTxs : protocolTxs;
+
+  const filtered = source.filter(tx => {
     if (filter !== "all" && tx.type !== filter) return false;
     if (search && !tx.hash.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
@@ -76,10 +116,31 @@ export default function History() {
         <p className="text-muted-foreground">All your on-chain activity in one place.</p>
       </div>
 
+      {/* Tab selector */}
+      <div className="flex gap-2">
+        {(["personal", "protocol"] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => setActiveTab(t)}
+            className={cn(
+              "px-4 py-1.5 rounded-lg text-sm capitalize transition",
+              activeTab === t ? "bg-primary text-white" : "bg-white/5 text-muted-foreground hover:bg-white/10",
+            )}
+          >
+            {t === "personal" ? "My Transactions" : "Protocol Activity"}
+          </button>
+        ))}
+        {activeTab === "protocol" && activityFeed.isFetching && (
+          <Loader2 className="h-4 w-4 text-muted-foreground animate-spin self-center ml-1" />
+        )}
+      </div>
+
       <Card className="bg-black/40 border-white/8">
         <CardHeader>
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <CardTitle className="text-base">All Transactions</CardTitle>
+            <CardTitle className="text-base">
+              {activeTab === "personal" ? "My Transactions" : "Protocol Activity"}
+            </CardTitle>
             <div className="flex items-center gap-2 flex-wrap">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -108,26 +169,34 @@ export default function History() {
             <p className="text-muted-foreground text-center py-12">No transactions found.</p>
           ) : (
             <div className="divide-y divide-white/5">
-              {filtered.map(tx => {
+              {filtered.map((tx, idx) => {
                 const meta = TYPE_META[tx.type];
                 const Icon = meta.icon;
                 return (
-                  <div key={tx.hash} className="flex items-center justify-between py-3.5 hover:bg-white/2 -mx-2 px-2 rounded-lg transition">
+                  <div key={`${tx.hash}-${idx}`} className="flex items-center justify-between py-3.5 hover:bg-white/2 -mx-2 px-2 rounded-lg transition">
                     <div className="flex items-center gap-3">
                       <div className={cn("p-2 rounded-full", meta.color)}>
                         <Icon className="h-4 w-4" />
                       </div>
                       <div>
-                        <p className="font-medium text-sm">{meta.label}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-sm">{meta.label}</p>
+                          {tx.status === "pending" && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-400/10 text-yellow-400 border border-yellow-400/20">Pending</span>
+                          )}
+                          {tx.status === "failed" && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-400/10 text-red-400 border border-red-400/20">Failed</span>
+                          )}
+                        </div>
                         <p className="text-xs text-muted-foreground">{formatDate(tx.timestamp)}</p>
                       </div>
                     </div>
                     <div className="text-right">
                       <p className="font-semibold text-sm">
                         <span className={meta.sign === "-" ? "text-red-400" : meta.sign === "+" ? "text-green-400" : ""}>
-                          {meta.sign}{formatNumber(tx.amount)}
+                          {meta.sign}{tx.amount > 0 ? formatNumber(tx.amount) : "—"}
                         </span>
-                        {" "}<span className="text-muted-foreground">{tx.token}</span>
+                        {tx.amount > 0 && <>{" "}<span className="text-muted-foreground">{tx.token}</span></>}
                       </p>
                       <a
                         href={`https://explorer.test.mezo.org/tx/${tx.hash}`}
@@ -144,7 +213,7 @@ export default function History() {
             </div>
           )}
           <div className="mt-4 pt-4 border-t border-white/8 text-center">
-            <p className="text-xs text-muted-foreground">Showing {filtered.length} of {TRANSACTIONS.length} transactions</p>
+            <p className="text-xs text-muted-foreground">Showing {filtered.length} of {source.length} transactions</p>
           </div>
         </CardContent>
       </Card>
