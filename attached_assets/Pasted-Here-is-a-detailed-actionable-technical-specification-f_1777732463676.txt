@@ -1,0 +1,464 @@
+Here is a detailed, actionable technical specification for the Auto-Compounder Vault, focused specifically on the code quality, security, and implementation details necessary for a winning hackathon submission.
+
+
+---
+
+
+## 1. Mezo Protocol Integration: A Deep Dive
+
+
+This section outlines the precise on-chain mechanics your vault must interact with. Understanding these details is critical for writing correct and efficient smart contract code.
+
+
+### 1.1 The veMEZO Contract: Core Mechanics
+The `veMEZO` contract is the foundation. It is an **NFT contract (ERC-721) where each token represents a time-locked position of MEZO**. The key properties that will dictate your contract's logic are:
+*   **Lock Duration**: The lock period ranges from a **minimum of 1 week to a maximum of 4 years**.
+*   **Linear Decay**: The voting power (and therefore, the potential to earn rewards) of a veMEZO position **decreases linearly as the lock approaches its expiration**.
+*   **Non-Transferability**: A veMEZO NFT is **soulbound to the wallet that created it**. It cannot be transferred directly between users. This is the primary reason your vault must act as a custodian: users will transfer their veMEZO to the vault contract, which then holds and manages it on their behalf.
+*   **Governance Role**: veMEZO has **no independent governance power**. Its sole purpose is to **amplify the voting power of veBTC positions by up to 5x** and to earn a share of the incentives posted by veBTC holders. This distinction is important; your vault is automating the management of a "booster" asset, not the primary governance token.
+
+
+### 1.2 Reward Accrual: Rebase & Gauge Incentives
+Your vault's profitability depends on reliably claiming two distinct types of rewards:
+*   **Rebase Rewards**: These are a form of anti-dilution protection. Each week, a portion of new MEZO emissions is distributed to veMEZO holders automatically, based on the size of their locked position.
+*   **Gauge Incentives**: This is where the primary yield is generated. veBTC holders create a "gauge" for their position and post incentives (bribes) to attract veMEZO votes. The **Gauge System** is a smart contract system that manages voting and the distribution of these rewards. Your vault must be able to claim these accumulated incentives for the veMEZO NFTs it holds. The Mezo Earn Development Guide confirms that these gauge contracts are part of the core protocol.
+
+
+### 1.3 Epoch Timing: The Compounding Schedule
+All voting and reward distribution in Mezo Earn operates on a **7-day cycle called an epoch**, which begins every **Thursday at 00:00 UTC**.
+*   **Voting:** Votes cast in the current epoch determine the reward distribution for the **next** epoch.
+*   **Rewards:** Fees generated in the current epoch are distributed based on the votes that were cast **during that same epoch**.
+*   **Implication for Your Bot:** The keeper bot should be scheduled to run shortly **after each epoch ends** (e.g., early Thursday morning UTC) to claim and compound the rewards from the previous week.
+
+
+---
+
+
+## 2. Production-Ready Smart Contract Implementation (Code Quality Focus)
+
+
+The following code is designed with security, gas efficiency, and clarity as top priorities to maximize the "Technical Implementation" judging score.
+
+
+### 2.1 Core Vault Contract with Security Patterns
+
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26; // Use a specific, modern version
+
+
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+
+/**
+ * @title VeMEZOAutoCompounder
+ * @dev A vault that automates the compounding of veMEZO rewards
+ */
+contract VeMEZOAutoCompounder is IERC721Receiver, Ownable2Step, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
+
+    // ====================== STATE VARIABLES ======================
+    
+    IVeMEZO public immutable veMEZO;
+    IERC20 public immutable mezoToken;
+    address public keeper;
+    uint256 public performanceFee = 1000; // 10% in basis points
+    address public treasury;
+    uint256 public totalDeposits;
+
+
+    mapping(uint256 => address) public nftOwner; // tokenId => depositor
+    mapping(address => uint256) public userShare; // user => share amount
+    uint256[] public depositedTokenIds;
+
+
+    // ====================== EVENTS ======================
+    
+    event Deposited(address indexed user, uint256 indexed tokenId, uint256 share);
+    event Withdrawn(address indexed user, uint256 indexed tokenId, uint256 share);
+    event Compounded(uint256 totalRewards, uint256 fee);
+    event KeeperUpdated(address indexed oldKeeper, address indexed newKeeper);
+    event PerformanceFeeUpdated(uint256 oldFee, uint256 newFee);
+
+
+    // ====================== MODIFIERS ======================
+    
+    modifier onlyKeeper() {
+        require(msg.sender == keeper, "VeMEZOAutoCompounder: caller is not the keeper");
+        _;
+    }
+
+
+    // ====================== CONSTRUCTOR ======================
+    
+    constructor(address _veMEZO, address _mezoToken, address _treasury) Ownable(msg.sender) {
+        require(_veMEZO != address(0) && _mezoToken != address(0) && _treasury != address(0), "Invalid address");
+        veMEZO = IVeMEZO(_veMEZO);
+        mezoToken = IERC20(_mezoToken);
+        treasury = _treasury;
+        keeper = msg.sender;
+    }
+
+
+    // ====================== CORE FUNCTIONS ======================
+    
+    /**
+     * @notice Deposits a veMEZO NFT into the vault
+     * @dev Uses Checks-Effects-Interactions pattern to prevent reentrancy
+     * @param tokenId The ID of the veMEZO NFT to deposit
+     */
+    function deposit(uint256 tokenId) external nonReentrant {
+        // Checks
+        require(veMEZO.ownerOf(tokenId) == msg.sender, "Not owner");
+        
+        // Effects (state changes before external calls)
+        nftOwner[tokenId] = msg.sender;
+        depositedTokenIds.push(tokenId);
+        totalDeposits++;
+        
+        // Calculate share based on the current value of the position
+        uint256 nftValue = veMEZO.balanceOfNFT(tokenId);
+        userShare[msg.sender] += nftValue;
+        
+        emit Deposited(msg.sender, tokenId, nftValue);
+        
+        // Interactions (external call to transfer NFT to vault)
+        veMEZO.safeTransferFrom(msg.sender, address(this), tokenId);
+    }
+    
+    // ... (other functions would follow the same pattern) ...
+}
+```
+
+
+**Key Code Quality Features in This Implementation:**
+*   **Checks-Effects-Interactions Pattern:** The `deposit` function explicitly demonstrates this critical security pattern. All state changes (`nftOwner`, `depositedTokenIds`, `userShare`) are made **before** the external call (`veMEZO.safeTransferFrom`). This prevents reentrancy attacks.
+*   **Modern Solidity Version:** Using `pragma solidity 0.8.26` leverages built-in arithmetic overflow/underflow checks and other compiler-level security features.
+*   **Immutable Variables:** `veMEZO` and `mezoToken` are marked as `immutable`. This reduces gas costs for reading these variables and makes the contract more secure by ensuring they cannot be changed after deployment.
+*   **Two-Step Ownership Transfer:** `Ownable2Step` is used instead of the standard `Ownable`. This mitigates the risk of accidentally transferring ownership to an invalid or inaccessible address, as the new owner must explicitly accept the transfer.
+*   **SafeERC20:** All interactions with the `MEZO` token use OpenZeppelin's `SafeERC20` library, which provides safety checks for operations like `transfer` and `approve`, preventing silent failures.
+
+
+### 2.2 Interface Definitions for Protocol Integration
+
+
+Your contract must define these interfaces to interact with Mezo's core contracts correctly.
+
+
+```solidity
+// Based on Solidly/Mezo Earn architecture
+interface IVeMEZO is IERC721 {
+    // Creates a new lock; returns the NFT tokenId
+    function createLock(uint256 amount, uint256 unlockTime) external returns (uint256 tokenId);
+    
+    // Increases the locked amount for an existing position
+    function increaseAmount(uint256 tokenId, uint256 amount) external;
+    
+    // Extends the lock duration for an existing position
+    function increaseUnlockTime(uint256 tokenId, uint256 unlockTime) external;
+    
+    // Withdraws the underlying MEZO after the lock expires
+    function withdraw(uint256 tokenId) external;
+    
+    // Claims pending rebase rewards for a given NFT
+    function claimRebase(uint256 tokenId) external returns (uint256 amount);
+    
+    // Returns the current voting power (balance) of the NFT
+    function balanceOfNFT(uint256 tokenId) external view returns (uint256);
+    
+    // Returns the locked amount and unlock time for the NFT
+    function locked(uint256 tokenId) external view returns (int128 amount, uint256 end);
+}
+
+
+// Interface for claiming incentives from the gauge system
+interface IGaugeController {
+    function claimRewards(uint256 tokenId) external returns (uint256 amount);
+}
+```
+
+
+### 2.3 Advanced Compounding Logic with Fee Handling
+
+
+```solidity
+function _compound(uint256 tokenId) internal returns (uint256 totalRewards) {
+    // 1. Claim all rewards for this NFT
+    uint256 rebaseAmount = veMEZO.claimRebase(tokenId);
+    uint256 incentiveAmount = gaugeController.claimRewards(tokenId);
+    totalRewards = rebaseAmount + incentiveAmount;
+    
+    if (totalRewards == 0) return 0;
+
+
+    // 2. Calculate and deduct performance fee
+    uint256 fee = (totalRewards * performanceFee) / 10000;
+    uint256 amountToCompound = totalRewards - fee;
+    
+    // 3. Handle fee in MEZO (assuming rewards are in MEZO)
+    if (fee > 0) {
+        mezoToken.safeTransfer(treasury, fee);
+    }
+    
+    // 4. Approve veMEZO contract to spend MEZO tokens
+    mezoToken.safeApprove(address(veMEZO), amountToCompound);
+    
+    // 5. Re-lock the compounded amount into the veMEZO position
+    veMEZO.increaseAmount(tokenId, amountToCompound);
+    
+    // 6. Optionally extend lock to max duration for continuous compounding
+    // veMEZO.increaseUnlockTime(tokenId, block.timestamp + 4 * 365 days);
+    
+    emit Compounded(totalRewards, fee);
+    return totalRewards;
+}
+```
+
+
+---
+
+
+## 3. The Keeper Bot: A Production-Grade Automation Strategy
+
+
+### 3.1 Node.js Implementation with Reliability Features
+
+
+```javascript
+// keeper.js
+const { ethers } = require('ethers');
+const cron = require('node-cron');
+const winston = require('winston'); // For structured logging
+
+
+// Configure logger for monitoring and debugging
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.json(),
+  transports: [
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
+  ],
+});
+
+
+// Configuration
+const RPC_URL = 'https://rpc.test.mezo.org';
+const CHAIN_ID = 31611;
+const VAULT_ADDRESS = '0x...'; // Replace with deployed address
+const KEEPER_PRIVATE_KEY = process.env.KEEPER_PRIVATE_KEY;
+const MAX_GAS_PRICE = ethers.parseUnits('50', 'gwei'); // Set a gas cap
+
+
+async function compound() {
+    try {
+        const provider = new ethers.JsonRpcProvider(RPC_URL);
+        const wallet = new ethers.Wallet(KEEPER_PRIVATE_KEY, provider);
+        
+        // Gas price check: Prevent compounding during network congestion
+        const feeData = await provider.getFeeData();
+        if (feeData.gasPrice > MAX_GAS_PRICE) {
+            logger.warn(`Gas price too high: ${feeData.gasPrice}. Skipping compound.`);
+            return;
+        }
+
+
+        const vault = new ethers.Contract(VAULT_ADDRESS, VAULT_ABI, wallet);
+        
+        // Check if compounding is economically viable
+        const canCompound = await vault.checkUpkeep();
+        if (!canCompound) {
+            logger.info('Compounding not profitable at this time.');
+            return;
+        }
+        
+        // Execute the compound transaction
+        const tx = await vault.compoundAll();
+        logger.info(`Compound transaction sent: ${tx.hash}`);
+        
+        // Wait for confirmation and log the result
+        const receipt = await tx.wait();
+        logger.info(`Compounded successfully! Block: ${receipt.blockNumber}, Gas used: ${receipt.gasUsed.toString()}`);
+        
+        // Optional: Send a Discord notification
+        // await sendDiscordAlert(`Compounded veMEZO rewards in block ${receipt.blockNumber}`);
+        
+    } catch (error) {
+        logger.error(`Compounding failed: ${error.message}`);
+        // Send critical alert (e.g., via Discord webhook)
+    }
+}
+
+
+// Schedule to run shortly after each epoch ends (Thursdays at 00:05 UTC)
+cron.schedule('5 0 * * 4', () => {
+    logger.info('Epoch ended. Starting compounding process...');
+    compound();
+});
+```
+
+
+### 3.2 Keeper Security & Reliability
+*   **Gas Price Cap:** The bot checks the current gas price against `MAX_GAS_PRICE` and aborts if it's too high. This prevents the vault from paying exorbitant fees during network congestion, which would eat into user profits.
+*   **Structured Logging:** Using a library like `winston` creates machine-readable logs that are essential for debugging and monitoring the bot's performance over time.
+*   **Error Handling & Alerts:** The bot is wrapped in a `try-catch` block. In a production environment, the `catch` block would be configured to send an immediate alert (e.g., to a Discord channel) so the team can investigate any failures.
+*   **Epoch Timing:** The cron schedule `5 0 * * 4` ensures the bot runs five minutes after the start of a new epoch (Thursday 00:00 UTC). This gives the protocol time to finalize reward calculations and ensures all pending rewards are claimable.
+
+
+---
+
+
+## 4. Deployment, Verification, and Monitoring on Mezo
+
+
+### 4.1 Testnet Deployment & Verification
+The Mezo network is fully EVM-compatible, allowing you to use standard tools like Hardhat.
+
+
+1.  **Configure Hardhat:**
+    ```javascript
+    // hardhat.config.js
+    module.exports = {
+      solidity: "0.8.26",
+      networks: {
+        mezoTestnet: {
+          url: "https://rpc.test.mezo.org",
+          chainId: 31611,
+          accounts: [process.env.PRIVATE_KEY]
+        }
+      },
+      etherscan: {
+        apiKey: {
+          mezoTestnet: 'not-needed'
+        },
+        customChains: [
+          {
+            network: "mezoTestnet",
+            chainId: 31611,
+            urls: {
+              apiURL: "https://explorer.test.mezo.org/api",
+              browserURL: "https://explorer.test.mezo.org"
+            }
+          }
+        ]
+      }
+    };
+    ```
+
+
+2.  **Deploy and Verify:**
+    ```bash
+    npx hardhat run scripts/deploy.js --network mezoTestnet
+    npx hardhat verify --network mezoTestnet DEPLOYED_CONTRACT_ADDRESS "arg1" "arg2"
+    ```
+
+
+### 4.2 Essential Contract Monitoring
+To ensure the vault operates as expected, set up monitoring for key on-chain events:
+*   **Deposits (`Deposited`)**: Track new users and the total value locked (TVL) in the vault.
+*   **Withdrawals (`Withdrawn`)**: Monitor user exits and ensure shares are being calculated correctly.
+*   **Compounding (`Compounded`)**: Verify the keeper is running, check the amount of rewards claimed and fees collected, and confirm the transaction was successful.
+*   **Keeper Updates (`KeeperUpdated`)**: Receive alerts for any changes to the authorized keeper address.
+
+
+---
+
+
+## 5. Integrating MUSD for Full Judging Criteria Compliance
+
+
+The hackathon rules mandate "effective use of MUSD" for the 30% Mezo Integration score. Here are two concrete ways to integrate MUSD:
+
+
+### 5.1 Fee Collection in MUSD
+The simplest and most effective integration is to collect performance fees in MUSD.
+1.  **In the `_compound` function**: After claiming rewards (which may be in MEZO or another token), use Mezo's built-in swap router to swap the fee portion into MUSD.
+2.  **Send MUSD to Treasury**: Transfer the acquired MUSD directly to the treasury address.
+3.  **Why this works**: This creates consistent demand for MUSD on the network and demonstrates a clear understanding of its role as the ecosystem's primary stablecoin.
+
+
+### 5.2 MUSD Savings Vault (Future Enhancement)
+As a post-hackathon roadmap item, the vault could automatically deposit accumulated MUSD fees into the **MUSD Savings Vault**, a core Mezo product. This would generate additional yield on the protocol's treasury, demonstrating a deep integration with the full Mezo financial stack.
+
+
+---
+
+
+## 6. Frontend Integration: Mezo Passport & User Experience
+
+
+The second mandatory component for the 30% Mezo Integration score is the use of **Mezo Passport**. The official `@mezo-org/passport` package is built on RainbowKit and provides seamless wallet connectivity for both Bitcoin (e.g., Xverse, Unisat) and EVM (e.g., MetaMask) wallets.
+
+
+```tsx
+// frontend/App.tsx
+import '@rainbow-me/rainbowkit/styles.css';
+import { getDefaultConfig, RainbowKitProvider } from '@rainbow-me/rainbowkit';
+import { WagmiProvider } from 'wagmi';
+import { mezoTestnet } from 'wagmi/chains';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { getMezoPassportConfig } from '@mezo-org/passport';
+
+
+const queryClient = new QueryClient();
+
+
+// The official method to configure wallets for Mezo
+const config = getDefaultConfig({
+  appName: 'VeMEZO Auto-Compounder',
+  projectId: 'YOUR_WALLETCONNECT_PROJECT_ID',
+  chains: [mezoTestnet],
+  ...getMezoPassportConfig(), // This enables Bitcoin wallet support
+});
+
+
+function App() {
+  return (
+    <WagmiProvider config={config}>
+      <QueryClientProvider client={queryClient}>
+        <RainbowKitProvider>
+          {/* Your application components */}
+        </RainbowKitProvider>
+      </QueryClientProvider>
+    </WagmiProvider>
+  );
+}
+```
+
+
+**Key UX Considerations for the Dashboard:**
+*   **Clear Deposit Flow:** Guide users through selecting their veMEZO NFT and approving the transfer to the vault.
+*   **Transparent Yield Tracking:** Display the user's share of the vault, estimated APR/APY based on historical data, and a clear breakdown of total rewards earned vs. fees paid.
+*   **Withdrawal Information:** Clearly state that withdrawing the NFT will return the original veMEZO position along with any un-compounded rewards.
+
+
+---
+
+
+## 7. Security Best Practices Checklist
+
+
+This checklist summarizes the key security measures that will demonstrate a high level of code quality to the judges.
+
+
+*   **[x] Use a specific, modern Solidity version (e.g., `0.8.26`).**
+*   **[x] Import and use OpenZeppelin's `ReentrancyGuard` on all state-changing functions.**
+*   **[x] Implement the Checks-Effects-Interactions pattern rigorously.**
+*   **[x] Use `SafeERC20` for all token interactions (MEZO, MUSD).**
+*   **[x] Prefer `Ownable2Step` over `Ownable` for secure ownership transfers.**
+*   **[x] Mark contract references as `immutable` where possible to save gas and improve security.**
+*   **[x] Ensure the Keeper's private key is never hardcoded and is stored in a secure environment variable.**
+*   **[x] Implement a gas price limit in the Keeper bot to prevent excessive transaction fees.**
+*   **[x] Set up comprehensive logging and monitoring for all critical functions.**
+
+
+By following this technical specification, you will build a robust, secure, and well-integrated project that excels in the "Technical Implementation" and "Mezo Integration" sections of the judging criteria.
+
+
+

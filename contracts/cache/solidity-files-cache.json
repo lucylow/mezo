@@ -2,8 +2,8 @@
   "_format": "hh-sol-cache-2",
   "files": {
     "/home/runner/workspace/contracts/contracts/VeMEZOAutoCompounder.sol": {
-      "lastModificationDate": 1777082559662,
-      "contentHash": "6b9636203e1e3b4630915a3506efc0bf",
+      "lastModificationDate": 1777732709420,
+      "contentHash": "93d0c195f8f6e7cd769adb7390022d07",
       "sourceName": "contracts/VeMEZOAutoCompounder.sol",
       "solcConfig": {
         "version": "0.8.26",
@@ -53,8 +53,8 @@
       ]
     },
     "/home/runner/workspace/contracts/contracts/interfaces/IVeMEZO.sol": {
-      "lastModificationDate": 1776904873411,
-      "contentHash": "971bff695229ae7db3dd87bfabd8cd9b",
+      "lastModificationDate": 1777732812961,
+      "contentHash": "d58b3eab605335eeb1568537ab5b5f59",
       "sourceName": "contracts/interfaces/IVeMEZO.sol",
       "solcConfig": {
         "version": "0.8.26",
@@ -92,8 +92,8 @@
       ]
     },
     "/home/runner/workspace/contracts/contracts/interfaces/IMUSD.sol": {
-      "lastModificationDate": 1776904873411,
-      "contentHash": "9ef6eeb81a6a03162a0e2f3975bb9028",
+      "lastModificationDate": 1777732829834,
+      "contentHash": "4430a0ab89eb1ef7cf0700b6052b32be",
       "sourceName": "contracts/interfaces/IMUSD.sol",
       "solcConfig": {
         "version": "0.8.26",
@@ -131,8 +131,8 @@
       ]
     },
     "/home/runner/workspace/contracts/contracts/VeMEZOVaultToken.sol": {
-      "lastModificationDate": 1776905628267,
-      "contentHash": "8de99607783d422413d159bf2f64a201",
+      "lastModificationDate": 1777732750277,
+      "contentHash": "908615256a0eb981042d0b97443ed36b",
       "sourceName": "contracts/VeMEZOVaultToken.sol",
       "solcConfig": {
         "version": "0.8.26",
@@ -177,8 +177,8 @@
       ]
     },
     "/home/runner/workspace/contracts/contracts/interfaces/ITigrisRouter.sol": {
-      "lastModificationDate": 1776904873411,
-      "contentHash": "c035233502a2412382e1454d93dd2fa4",
+      "lastModificationDate": 1777732837133,
+      "contentHash": "c18a99a6c857b01cd232168dbbb988de",
       "sourceName": "contracts/interfaces/ITigrisRouter.sol",
       "solcConfig": {
         "version": "0.8.26",
@@ -214,8 +214,8 @@
       ]
     },
     "/home/runner/workspace/contracts/contracts/interfaces/IGaugeController.sol": {
-      "lastModificationDate": 1776904873411,
-      "contentHash": "0aa29051651f0c5109e341941125c629",
+      "lastModificationDate": 1777732823923,
+      "contentHash": "5a63605280478ff2ee634f295a707bf2",
       "sourceName": "contracts/interfaces/IGaugeController.sol",
       "solcConfig": {
         "version": "0.8.26",
@@ -251,8 +251,8 @@
       ]
     },
     "/home/runner/workspace/contracts/contracts/interfaces/IMUSDSavingsVault.sol": {
-      "lastModificationDate": 1776904873411,
-      "contentHash": "a6bdb6c30923f88a865011b5256e26f5",
+      "lastModificationDate": 1777732844944,
+      "contentHash": "fb55b3d97bc96ec86483379a9f7278f1",
       "sourceName": "contracts/interfaces/IMUSDSavingsVault.sol",
       "solcConfig": {
         "version": "0.8.26",

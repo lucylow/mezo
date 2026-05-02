@@ -1011,7 +1011,7 @@ export interface VeMEZOAutoCompounder extends BaseContract {
   onERC721Received: TypedContractMethod<
     [arg0: AddressLike, arg1: AddressLike, arg2: BigNumberish, arg3: BytesLike],
     [string],
-    "nonpayable"
+    "view"
   >;
 
   owner: TypedContractMethod<[], [string], "view">;
@@ -1238,7 +1238,7 @@ export interface VeMEZOAutoCompounder extends BaseContract {
   ): TypedContractMethod<
     [arg0: AddressLike, arg1: AddressLike, arg2: BigNumberish, arg3: BytesLike],
     [string],
-    "nonpayable"
+    "view"
   >;
   getFunction(
     nameOrSignature: "owner"

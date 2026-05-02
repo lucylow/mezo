@@ -4,25 +4,26 @@
  * MUSD Treasury automation module.
  *
  * Responsibilities:
- *   1. Query MUSD balance held by TreasuryYieldManager
- *   2. Trigger deployTreasury() when balance exceeds the configured threshold
- *   3. Report treasury value, APY estimate, and sMUSD share count
+ *   1. Query MUSD balance held by TreasuryYieldManager.
+ *   2. Trigger deployTreasury() when balance exceeds the configured threshold.
+ *   3. Report treasury value, APY estimate, and sMUSD share count.
  *
  * Environment variables:
  *   MEZO_RPC_URL             – RPC endpoint (default: https://rpc.test.mezo.org)
  *   KEEPER_PRIVATE_KEY       – Signer key
  *   TREASURY_MANAGER_ADDRESS – Deployed TreasuryYieldManager address
  *   MUSD_TOKEN               – MUSD ERC-20 address
- *   MUSD_MIN_DEPLOY_AMOUNT   – Min MUSD before deploying (default: 1000, in whole tokens)
+ *   MUSD_MIN_DEPLOY_AMOUNT   – Min MUSD before deploying (default: 1000, whole tokens)
  */
 
 import { ethers } from "ethers";
+import winston from "winston";
 import "dotenv/config";
 
-const RPC_URL                = process.env.MEZO_RPC_URL                ?? "https://rpc.test.mezo.org";
-const TREASURY_MANAGER_ADDR  = process.env.TREASURY_MANAGER_ADDRESS    ?? "";
-const MUSD_TOKEN_ADDR        = process.env.MUSD_TOKEN                  ?? "";
-const MIN_DEPLOY_WHOLE       = Number(process.env.MUSD_MIN_DEPLOY_AMOUNT ?? "1000");
+const RPC_URL               = process.env.MEZO_RPC_URL               ?? "https://rpc.test.mezo.org";
+const TREASURY_MANAGER_ADDR = process.env.TREASURY_MANAGER_ADDRESS   ?? "";
+const MUSD_TOKEN_ADDR       = process.env.MUSD_TOKEN                 ?? "";
+const MIN_DEPLOY_WHOLE      = Number(process.env.MUSD_MIN_DEPLOY_AMOUNT ?? "1000");
 
 const TREASURY_MANAGER_ABI = [
   "function deployTreasury(uint256 totalAmount) external",
@@ -37,25 +38,35 @@ const ERC20_ABI = [
 ] as const;
 
 export interface TreasuryStatus {
-  balance:       bigint;   // idle MUSD on TreasuryYieldManager
-  totalValue:    bigint;   // total MUSD value including staked sMUSD
-  shares:        bigint;   // sMUSD shares held
-  deployed:      boolean;  // whether deployment was triggered this run
-  skippedReason: string;   // empty string when deployed
+  /** Idle MUSD sitting on TreasuryYieldManager. */
+  balance:       bigint;
+  /** Total MUSD value including staked sMUSD positions. */
+  totalValue:    bigint;
+  /** sMUSD shares currently held. */
+  shares:        bigint;
+  /** True when a deployment transaction was sent this run. */
+  deployed:      boolean;
+  /** Non-empty string explaining why deployment was skipped. */
+  skippedReason: string;
 }
 
 /**
  * Main entry point called by the keeper cron.
  *
- * Deploys idle MUSD held by TreasuryYieldManager into the configured
- * yield strategies when balance exceeds the minimum threshold.
+ * Deploys idle MUSD held by TreasuryYieldManager into the configured yield
+ * strategies when the balance exceeds the minimum threshold.
+ *
+ * @param  log  Winston logger instance from the caller (avoids creating a
+ *              separate logger per module and keeps log formats consistent).
  */
-export async function runTreasuryDeployment(): Promise<TreasuryStatus> {
+export async function runTreasuryDeployment(
+  log?: winston.Logger,
+): Promise<TreasuryStatus> {
   const status: TreasuryStatus = {
-    balance: 0n,
-    totalValue: 0n,
-    shares: 0n,
-    deployed: false,
+    balance:       0n,
+    totalValue:    0n,
+    shares:        0n,
+    deployed:      false,
     skippedReason: "",
   };
 
@@ -74,13 +85,12 @@ export async function runTreasuryDeployment(): Promise<TreasuryStatus> {
     return status;
   }
 
-  const provider = new ethers.JsonRpcProvider(RPC_URL);
-  const signer   = new ethers.Wallet(key, provider);
-
+  const provider        = new ethers.JsonRpcProvider(RPC_URL);
+  const signer          = new ethers.Wallet(key, provider);
   const musd            = new ethers.Contract(MUSD_TOKEN_ADDR, ERC20_ABI, provider);
   const treasuryManager = new ethers.Contract(TREASURY_MANAGER_ADDR, TREASURY_MANAGER_ABI, signer);
 
-  // ── Query current state ──────────────────────────────────────────────────
+  // ── Query current state ────────────────────────────────────────────────────
   const [balance, totalValue, shares] = await Promise.all([
     musd.balanceOf(TREASURY_MANAGER_ADDR) as Promise<bigint>,
     treasuryManager.getTotalValue()       as Promise<bigint>,
@@ -98,11 +108,16 @@ export async function runTreasuryDeployment(): Promise<TreasuryStatus> {
     return status;
   }
 
-  // ── Deploy idle MUSD ─────────────────────────────────────────────────────
-  console.log(`[treasury] Deploying ${ethers.formatUnits(balance, 18)} MUSD via TreasuryYieldManager…`);
-  const tx = await treasuryManager.deployTreasury(balance);
+  // ── Deploy idle MUSD ───────────────────────────────────────────────────────
+  log?.info("Deploying idle MUSD via TreasuryYieldManager", {
+    amount: ethers.formatUnits(balance, 18),
+  });
+  const tx      = await treasuryManager.deployTreasury(balance);
   const receipt = await tx.wait();
-  console.log(`[treasury] Confirmed in block ${receipt?.blockNumber}, hash: ${tx.hash}`);
+  log?.info("Treasury deployment confirmed", {
+    blockNumber: receipt?.blockNumber,
+    txHash: tx.hash,
+  });
 
   status.deployed = true;
   return status;
@@ -114,9 +129,9 @@ export async function runTreasuryDeployment(): Promise<TreasuryStatus> {
 export function formatTreasuryStatus(s: TreasuryStatus): string {
   if (!s.deployed) return `[treasury] Skipped — ${s.skippedReason}`;
   return (
-    `[treasury] Deployed ✓\n` +
-    `  Idle balance:  ${ethers.formatUnits(s.balance, 18)} MUSD\n` +
-    `  Total value:   ${ethers.formatUnits(s.totalValue, 18)} MUSD\n` +
-    `  sMUSD shares:  ${ethers.formatUnits(s.shares, 18)}`
+    `[treasury] Deployed\n` +
+    `  Idle balance: ${ethers.formatUnits(s.balance, 18)} MUSD\n` +
+    `  Total value:  ${ethers.formatUnits(s.totalValue, 18)} MUSD\n` +
+    `  sMUSD shares: ${ethers.formatUnits(s.shares, 18)}`
   );
 }

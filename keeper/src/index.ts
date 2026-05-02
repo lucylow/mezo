@@ -23,7 +23,6 @@ import winston from "winston";
 import "dotenv/config";
 import { checkProfitability, formatProfitabilityResult } from "./profitability";
 import { notifyCompoundSuccess, notifyError, notifySkipped } from "./discord";
-import { deployTreasury } from "./treasury-manager";
 import { runTreasuryDeployment, formatTreasuryStatus } from "./treasury";
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -137,8 +136,7 @@ async function compound(): Promise<void> {
     });
 
     // Run treasury deployment opportunistically after each compound
-    await deployTreasury().catch((e: Error) => logger.warn("Treasury-manager deploy skipped", { err: e.message }));
-    const treasuryStatus = await runTreasuryDeployment().catch(() => null);
+    const treasuryStatus = await runTreasuryDeployment(logger).catch(() => null);
     if (treasuryStatus) logger.info(formatTreasuryStatus(treasuryStatus));
 
   } catch (err: any) {
