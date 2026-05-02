@@ -10,9 +10,12 @@ import {
   TrendingUp, ArrowLeftRight, Vote, Trophy, History, Settings,
   ExternalLink, ChevronLeft, ChevronRight, Home, User,
 } from "lucide-react";
+import { useChainId } from "wagmi";
 import { cn } from "@/lib/utils";
 import React, { useEffect, useState } from "react";
 import { shortenAddress } from "@/lib/utils";
+
+const MEZO_CHAIN_IDS = [31611, 31612]; // matsnet testnet + mainnet
 
 interface NavItem {
   href: string;
@@ -28,7 +31,7 @@ const MAIN_NAV: NavItem[] = [
   { href: "/earn",        label: "Earn",         icon: TrendingUp },
   { href: "/swap",        label: "Swap",         icon: ArrowLeftRight },
   { href: "/governance",  label: "Governance",   icon: Vote },
-  { href: "/analytics",   label: "Analytics",    icon: BarChart3 },
+  { href: "/stats",        label: "Analytics",    icon: BarChart3 },
   { href: "/leaderboard", label: "Leaderboard",  icon: Trophy },
   { href: "/history",     label: "History",      icon: History },
 ];

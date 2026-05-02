@@ -46,6 +46,50 @@ function fmtDuration(seconds: number): string {
   return `${m}m`;
 }
 
+function WhatHappensNext({ depositLockDays }: { depositLockDays: number }) {
+  const [open, setOpen] = useState(false);
+  const steps = [
+    { icon: ArrowRight,  color: "text-primary",    label: "NFT transfers to vault contract", desc: "Your veMEZO NFT is held in a non-custodial vault." },
+    { icon: Zap,         color: "text-blue-400",   label: "Vault shares minted instantly",   desc: `You receive vveMEZO shares proportional to the NFT value.` },
+    { icon: Lock,        color: "text-yellow-400", label: `${depositLockDays}-day lock begins`, desc: "Security delay prevents flash-loan and MEV attacks." },
+    { icon: RefreshCw,   color: "text-green-400",  label: "Auto-compounding starts",         desc: "Each epoch, rewards are claimed, swapped, and reinvested automatically." },
+  ];
+
+  return (
+    <div className="rounded-xl border border-white/8 bg-white/3 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <Info className="h-3.5 w-3.5 text-primary" />
+          What happens after you deposit?
+        </span>
+        {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+      </button>
+      {open && (
+        <div className="px-4 pb-4 space-y-3 border-t border-white/5 pt-3">
+          {steps.map((s, i) => {
+            const Icon = s.icon;
+            return (
+              <div key={i} className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-white/8 flex items-center justify-center shrink-0 mt-0.5">
+                  <Icon className={cn("h-3.5 w-3.5", s.color)} />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">{s.label}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{s.desc}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Vault() {
   const { address } = useAccount();
   const { isConnected } = useWallet();
@@ -239,6 +283,8 @@ export default function Vault() {
                           <span className="font-medium font-mono">{stats.performanceFee}%</span>
                         </div>
                       </div>
+
+                      <WhatHappensNext depositLockDays={depositLockDays} />
 
                       <Button
                         className="w-full h-12 text-lg"
