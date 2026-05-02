@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/Badge";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
-import { Info, Lock, ArrowDownToLine, ArrowUpFromLine, AlertCircle, Clock, Loader2, ShieldCheck } from "lucide-react";
+import { Info, Lock, ArrowDownToLine, ArrowUpFromLine, AlertCircle, Clock, Loader2, ShieldCheck, ChevronDown, ChevronUp, Zap, RefreshCw, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
 import { pageTransition, staggerContainer, staggerItem, cardHoverProps } from "@/lib/animations";
 import { FeeDisplay } from "@/components/vault/FeeDisplay";
