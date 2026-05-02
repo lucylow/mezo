@@ -5,24 +5,144 @@ import { useVaultActivityFeed } from "@/hooks/api/useVaultAPI";
 import { Button } from "@/components/ui/button";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Badge } from "@/components/ui/Badge";
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Slider } from "@/components/ui/slider";
+import { Area, AreaChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Clock, TrendingUp, Users, Coins, ShieldCheck, Wallet, Zap, ArrowUpRight, ArrowDownRight, RefreshCw, Loader2 } from "lucide-react";
 import { cn, formatNumber } from "@/lib/utils";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { staggerContainer, staggerItem, pageTransition, cardHoverProps } from "@/lib/animations";
 import { Link } from "wouter";
+import { ReferralWidget } from "@/components/referralui/ReferralWidget";
 
-const mockSimulationData = [
-  { day: 0,   balance: 1000 },
-  { day: 30,  balance: 1065 },
-  { day: 60,  balance: 1134 },
-  { day: 90,  balance: 1207 },
-  { day: 120, balance: 1286 },
-  { day: 150, balance: 1369 },
-  { day: 180, balance: 1458 },
-  { day: 365, balance: 2180 },
-];
+function buildSimData(deposit: number, aprPct: number, feePct: number, months: number) {
+  const netApr = aprPct * (1 - feePct / 100);
+  const monthlyRate = netApr / 100 / 12;
+  return Array.from({ length: months + 1 }, (_, i) => ({
+    label: i === 0 ? "Now" : i % 6 === 0 ? `M${i}` : "",
+    month: i,
+    compounded: parseFloat((deposit * Math.pow(1 + monthlyRate, i)).toFixed(0)),
+    simple: parseFloat((deposit * (1 + (netApr / 100) * (i / 12))).toFixed(0)),
+  }));
+}
+
+function InteractiveSimulator({ apr, fee }: { apr: number; fee: number }) {
+  const [deposit, setDeposit] = useState(10_000);
+  const [months, setMonths] = useState(12);
+
+  const data = useMemo(
+    () => buildSimData(deposit, apr, fee, months),
+    [deposit, apr, fee, months]
+  );
+
+  const final = data[data.length - 1];
+  const gain = final.compounded - deposit;
+  const edge = final.compounded - final.simple;
+
+  return (
+    <motion.div
+      variants={staggerItem}
+      initial="hidden"
+      animate="visible"
+      transition={{ delay: 0.25 }}
+      className="rounded-2xl border border-white/8 bg-black/40 backdrop-blur-sm p-6"
+    >
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h3 className="font-semibold">Compounding Simulator</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">Project your earnings with live APR</p>
+        </div>
+        <Badge variant="default" dot dotColor="bg-primary">{apr}% APR</Badge>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-4">
+        {/* Controls */}
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Initial Deposit</span>
+              <span className="font-mono font-semibold text-primary">{deposit.toLocaleString()} MEZO</span>
+            </div>
+            <Slider
+              min={1000} max={500_000} step={1000}
+              value={[deposit]}
+              onValueChange={([v]) => setDeposit(v)}
+            />
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>1K</span><span>500K</span>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Time Horizon</span>
+              <span className="font-mono font-semibold">{months}mo</span>
+            </div>
+            <Slider
+              min={1} max={36} step={1}
+              value={[months]}
+              onValueChange={([v]) => setMonths(v)}
+            />
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>1 mo</span><span>36 mo</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 pt-2">
+            <div className="bg-primary/10 border border-primary/20 rounded-xl p-3 text-center">
+              <p className="text-xs text-muted-foreground mb-1">Total Gain</p>
+              <p className="text-base font-bold text-primary font-mono">+{gain.toLocaleString()}</p>
+              <p className="text-[10px] text-muted-foreground">MEZO</p>
+            </div>
+            <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-3 text-center">
+              <p className="text-xs text-muted-foreground mb-1">vs Simple</p>
+              <p className="text-base font-bold text-green-400 font-mono">+{edge.toLocaleString()}</p>
+              <p className="text-[10px] text-muted-foreground">extra MEZO</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Chart */}
+        <div className="lg:col-span-3 h-[220px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+              <XAxis
+                dataKey="label"
+                stroke="rgba(255,255,255,0.15)"
+                tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                stroke="rgba(255,255,255,0.15)"
+                tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }}
+                tickFormatter={v => `${(v / 1000).toFixed(0)}k`}
+                axisLine={false}
+                tickLine={false}
+                width={40}
+              />
+              <Tooltip
+                contentStyle={{ backgroundColor: "#0a0b0d", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", fontSize: "11px" }}
+                formatter={(v: number, name: string) => [`${v.toLocaleString()} MEZO`, name === "compounded" ? "Auto-compounded" : "Simple interest"]}
+                labelFormatter={(_: any, payload: any) => payload?.[0] ? `Month ${payload[0].payload.month}` : ""}
+              />
+              <Line type="monotone" dataKey="simple" stroke="rgba(255,255,255,0.2)" strokeWidth={1.5} dot={false} name="simple" strokeDasharray="4 4" />
+              <Line type="monotone" dataKey="compounded" stroke="#F5A623" strokeWidth={2.5} dot={false} name="compounded" />
+            </LineChart>
+          </ResponsiveContainer>
+          <div className="flex items-center gap-4 mt-2 justify-end">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <div className="w-6 h-px bg-white/20" style={{ borderTop: "1.5px dashed rgba(255,255,255,0.3)" }} />
+              Simple interest
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <div className="w-6 h-0.5 bg-primary rounded" />
+              Auto-compounded
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
 
 const FALLBACK_ACTIVITY = [
   { id: "f1", type: "deposit",  amount: "1,200 MEZO", time: "10 mins ago",  address: "0x4a...2f1" },
@@ -370,57 +490,11 @@ export default function Dashboard() {
         </motion.div>
       </div>
 
-      {/* Compounding Simulation Chart */}
-      <motion.div
-        variants={staggerItem}
-        initial="hidden"
-        animate="visible"
-        transition={{ delay: 0.25 }}
-        className="rounded-2xl border border-white/8 bg-black/40 backdrop-blur-sm p-6"
-      >
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h3 className="font-semibold">Compounding Simulation</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Projected growth on $1,000 at current APR</p>
-          </div>
-          <Badge variant="default" dot dotColor="bg-primary">{stats.projectedAPR}% APR</Badge>
-        </div>
-        <ResponsiveContainer width="100%" height={220}>
-          <AreaChart data={mockSimulationData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%"  stopColor="#F5A623" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#F5A623" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <XAxis
-              dataKey="day"
-              stroke="rgba(255,255,255,0.15)"
-              tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }}
-              tickFormatter={v => `D${v}`}
-              axisLine={false}
-              tickLine={false}
-            />
-            <YAxis
-              stroke="rgba(255,255,255,0.15)"
-              tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }}
-              tickFormatter={v => `$${v.toLocaleString()}`}
-              axisLine={false}
-              tickLine={false}
-              width={64}
-            />
-            <Tooltip content={<CustomTooltip />} />
-            <Area
-              type="monotone"
-              dataKey="balance"
-              stroke="#F5A623"
-              strokeWidth={2}
-              fill="url(#colorBalance)"
-              dot={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </motion.div>
+      {/* Compounding Simulation Chart — Interactive */}
+      <InteractiveSimulator apr={stats.projectedAPR} fee={stats.performanceFee} />
+
+      {/* Referral Widget */}
+      <ReferralWidget />
 
       {/* Protocol Highlights */}
       <motion.div
