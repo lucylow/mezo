@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
-import { Zap, TrendingUp, Lock, ArrowRight, ExternalLink, Shield } from "lucide-react";
+import { Zap, TrendingUp, Lock, ArrowRight, ExternalLink, Shield, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Strategy {
@@ -32,6 +32,17 @@ const STRATEGIES: Strategy[] = [
     featured: true,
   },
   {
+    id: "musd-power-loop",
+    title: "MUSD Power Loop",
+    description: "Recursive upMUSD → Morpho Alpha → 4× loop. Amplified yield with managed liquidation risk.",
+    apr: 58.2,
+    tvl: "$4.1M",
+    risk: "Medium",
+    icon: Layers,
+    action: "Open Loop",
+    href: "/loop",
+  },
+  {
     id: "musd-savings",
     title: "MUSD Savings Vault",
     description: "Earn yield on MUSD with fee-backed revenue and MEZO emissions.",
@@ -52,6 +63,17 @@ const STRATEGIES: Strategy[] = [
     icon: Lock,
     action: "Lend",
     href: "https://mezo.org/lend",
+  },
+  {
+    id: "alpha-conservative",
+    title: "Alpha Conservative Loop",
+    description: "aMUSD Morpho core vault → 2× safe loop. Low liquidation risk, steady amplified returns.",
+    apr: 28.5,
+    tvl: "$1.8M",
+    risk: "Low",
+    icon: Layers,
+    action: "Open Loop",
+    href: "/loop",
   },
   {
     id: "mezo-lp",

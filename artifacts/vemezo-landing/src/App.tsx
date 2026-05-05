@@ -23,6 +23,7 @@ import Leaderboard  from "@/pages/leaderboard";
 import History      from "@/pages/history";
 import Settings     from "@/pages/settings";
 import Mats         from "@/pages/mats";
+import Loop         from "@/pages/loop";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,6 +57,7 @@ function Router() {
       <Route path="/history">    <DApp><History /></DApp>       </Route>
       <Route path="/settings">   <DApp><Settings /></DApp>      </Route>
       <Route path="/mats">       <DApp><Mats /></DApp>          </Route>
+      <Route path="/loop">       <DApp><Loop /></DApp>          </Route>
 
       <Route component={NotFound} />
     </Switch>

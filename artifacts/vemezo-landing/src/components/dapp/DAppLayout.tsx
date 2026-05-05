@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Vault, BarChart3, BookOpen, Menu, X, Wallet,
   TrendingUp, ArrowLeftRight, Vote, Trophy, History, Settings,
   ExternalLink, ChevronLeft, ChevronRight, Home, User, AlertCircle,
-  Sparkles,
+  Sparkles, Layers,
 } from "lucide-react";
 import { useChainId } from "wagmi";
 import { cn } from "@/lib/utils";
@@ -30,6 +30,7 @@ const MAIN_NAV: NavItem[] = [
   { href: "/app",         label: "Dashboard",   icon: LayoutDashboard },
   { href: "/vault",       label: "Vault",        icon: Vault },
   { href: "/mats",        label: "Mats",         icon: Sparkles },
+  { href: "/loop",        label: "Loop Engine",  icon: Layers },
   { href: "/portfolio",   label: "Portfolio",    icon: TrendingUp },
   { href: "/earn",        label: "Earn",         icon: TrendingUp },
   { href: "/swap",        label: "Swap",         icon: ArrowLeftRight },
@@ -53,7 +54,7 @@ const MOBILE_PRIMARY: NavItem[] = [
 ];
 
 const ROUTE_LABELS: Record<string, string> = {
-  "/app": "Dashboard", "/vault": "Vault", "/mats": "Mats", "/portfolio": "Portfolio",
+  "/app": "Dashboard", "/vault": "Vault", "/mats": "Mats", "/loop": "Loop Engine", "/portfolio": "Portfolio",
   "/earn": "Earn", "/swap": "Swap", "/governance": "Governance",
   "/stats": "Analytics", "/analytics": "Analytics", "/leaderboard": "Leaderboard",
   "/history": "History", "/docs": "Documentation", "/settings": "Settings",
