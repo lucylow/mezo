@@ -14,6 +14,7 @@ import { useChainId } from "wagmi";
 import { cn } from "@/lib/utils";
 import React, { useEffect, useState } from "react";
 import { shortenAddress } from "@/lib/utils";
+import { useEpochTimer } from "@/hooks/useEpochTimer";
 
 const MEZO_CHAIN_IDS = [31611, 31612]; // matsnet testnet + mainnet
 
@@ -108,6 +109,7 @@ export function DAppLayout({ children }: { children: React.ReactNode }) {
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const chainId = useChainId();
   const isWrongNetwork = isConnected && !MEZO_CHAIN_IDS.includes(chainId);
+  const epoch = useEpochTimer();
 
   useEffect(() => { closeMobileSidebar(); }, [location]);
 
@@ -157,12 +159,18 @@ export function DAppLayout({ children }: { children: React.ReactNode }) {
         {/* Epoch footer */}
         <div className="p-3 border-t border-white/8">
           {!sidebarCollapsed ? (
-            <div className="bg-white/5 rounded-lg p-3 text-xs">
-              <p className="text-muted-foreground mb-1">Next Epoch</p>
-              <p className="font-semibold text-sm">3d 14h 22m</p>
-              <div className="flex items-center gap-1.5 mt-2">
+            <div className="bg-white/5 rounded-lg p-3 text-xs space-y-1.5">
+              <p className="text-muted-foreground">Next Epoch</p>
+              <p className="font-semibold text-sm font-mono text-foreground">{epoch.compact}</p>
+              <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-primary transition-all duration-1000"
+                  style={{ width: `${epoch.epochProgress}%` }}
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
                 <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-muted-foreground">Mainnet</span>
+                <span className="text-muted-foreground">Thu 00:05 UTC</span>
               </div>
             </div>
           ) : (

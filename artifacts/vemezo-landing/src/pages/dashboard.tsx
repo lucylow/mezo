@@ -2,6 +2,7 @@ import { useVaultStats } from "@/hooks/useVaultStats";
 import { useUserPosition } from "@/hooks/useUserPosition";
 import { useWallet } from "@/hooks/useWallet";
 import { useVaultActivityFeed } from "@/hooks/api/useVaultAPI";
+import { useEpochTimer } from "@/hooks/useEpochTimer";
 import { Button } from "@/components/ui/button";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Badge } from "@/components/ui/Badge";
@@ -9,7 +10,7 @@ import { Slider } from "@/components/ui/slider";
 import { Area, AreaChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Clock, TrendingUp, Users, Coins, ShieldCheck, Wallet, Zap, ArrowUpRight, ArrowDownRight, RefreshCw, Loader2 } from "lucide-react";
 import { cn, formatNumber } from "@/lib/utils";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { staggerContainer, staggerItem, pageTransition, cardHoverProps } from "@/lib/animations";
 import { Link } from "wouter";
@@ -152,29 +153,6 @@ const FALLBACK_ACTIVITY = [
   { id: "f5", type: "deposit",  amount: "800 MEZO",   time: "12 hours ago", address: "0x7d...4c2" },
 ];
 
-/** Returns seconds until the next Thursday 00:05 UTC (epoch boundary). */
-function computeEpochSecondsLeft(): number {
-  const now = Date.now();
-  const nowDate = new Date(now);
-  const day = nowDate.getUTCDay(); // 0=Sun, 4=Thu
-  const daysUntilThursday = (4 - day + 7) % 7;
-  const candidate = new Date(now);
-  candidate.setUTCDate(nowDate.getUTCDate() + daysUntilThursday);
-  candidate.setUTCHours(0, 5, 0, 0);
-  // If candidate is already in the past (or within this second), roll forward 7 days
-  if (candidate.getTime() <= now) {
-    candidate.setUTCDate(candidate.getUTCDate() + 7);
-  }
-  return Math.max(0, Math.floor((candidate.getTime() - now) / 1000));
-}
-
-/** Compute what percentage of the current 7-day epoch has elapsed. */
-function computeEpochProgress(): number {
-  const totalEpoch = 7 * 24 * 3600;
-  const remaining  = computeEpochSecondsLeft();
-  return Math.round(((totalEpoch - remaining) / totalEpoch) * 100);
-}
-
 function ActivityIcon({ type }: { type: string }) {
   const cfg = {
     deposit:  { bg: "bg-green-500/15",  icon: <ArrowDownRight className="h-3.5 w-3.5 text-green-400" /> },
@@ -213,27 +191,7 @@ export default function Dashboard() {
   const { isConnected } = useWallet();
   const position = useUserPosition();
   const activityFeed = useVaultActivityFeed();
-
-  const [timeLeft, setTimeLeft] = useState(computeEpochSecondsLeft);
-  const [epochProgress, setEpochProgress] = useState(computeEpochProgress);
-
-  const tick = useCallback(() => {
-    setTimeLeft(computeEpochSecondsLeft());
-    setEpochProgress(computeEpochProgress());
-  }, []);
-
-  useEffect(() => {
-    const t = setInterval(tick, 1000);
-    return () => clearInterval(t);
-  }, [tick]);
-
-  const formatTime = (s: number) => {
-    const d   = Math.floor(s / 86400);
-    const h   = Math.floor((s % 86400) / 3600);
-    const m   = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    return `${d}d ${h}h ${m}m ${sec}s`;
-  };
+  const epoch = useEpochTimer();
 
   // Build activity items: prefer live API data, fall back to mock
   const activityItems: Array<{ id: string; type: string; amount: string; time: string; address: string }> =
@@ -291,13 +249,13 @@ export default function Dashboard() {
       icon: Users,
       color: "text-blue-400",
       bg: "bg-blue-500/10",
-      value: 1234,
+      value: stats.totalUsers,
       prefix: "",
       suffix: "",
       decimals: 0,
-      change: "+12",
+      change: null,
       changeUp: true,
-      sub: "this week",
+      sub: "unique depositors",
     },
   ];
 
@@ -319,7 +277,7 @@ export default function Dashboard() {
           <Clock className="h-4 w-4 text-primary animate-pulse" />
           <span className="text-sm font-mono font-medium">
             Next Epoch:{" "}
-            <span className="text-primary">{formatTime(timeLeft)}</span>
+            <span className="text-primary">{epoch.formatted}</span>
           </span>
         </div>
       </div>
@@ -429,13 +387,13 @@ export default function Dashboard() {
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>Epoch progress</span>
-                    <span className="text-primary font-medium">{epochProgress}%</span>
+                    <span className="text-primary font-medium">{epoch.epochProgress}%</span>
                   </div>
                   <div className="h-2 bg-white/6 rounded-full overflow-hidden">
                     <motion.div
                       className="h-full rounded-full bg-gradient-to-r from-primary to-orange-500"
                       initial={{ width: 0 }}
-                      animate={{ width: `${epochProgress}%` }}
+                      animate={{ width: `${epoch.epochProgress}%` }}
                       transition={{ duration: 0.8, ease: "easeOut", delay: 0.3 }}
                     />
                   </div>

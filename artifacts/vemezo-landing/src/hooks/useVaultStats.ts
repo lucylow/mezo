@@ -5,20 +5,22 @@ export type VaultStatsSource = "on-chain" | "api" | "mock" | "loading" | "error"
 
 export interface VaultStats {
   tvl:                 number;
-  projectedAPR:      number;
-  pendingRewards:    number;
-  performanceFee:    number;
-  totalShares:       number;
-  lastCompoundTime:  number;
+  projectedAPR:        number;
+  pendingRewards:      number;
+  performanceFee:      number;
+  totalShares:         number;
+  lastCompoundTime:    number;
+  /** Total unique depositors (latest daily snapshot). */
+  totalUsers:          number;
   /** Cumulative performance fees in MUSD (on-chain counter when DEX fee path is used, else API/subgraph). */
-  totalFeesCollected: number;
+  totalFeesCollected:  number;
   /** Current treasury value in MUSD (including auto-staked sMUSD at current exchange rate). */
-  treasuryMUSDValue: number;
+  treasuryMUSDValue:   number;
   /** Treasury APY from MUSD Savings Vault (base 5%, variable). */
-  treasuryAPY:       number;
-  isLoading:         boolean;
-  isError:           boolean;
-  source:            VaultStatsSource;
+  treasuryAPY:         number;
+  isLoading:           boolean;
+  isError:             boolean;
+  source:              VaultStatsSource;
 }
 
 /**
@@ -36,7 +38,7 @@ export function useVaultStats(): VaultStats {
     return {
       tvl: 0, projectedAPR: 0, pendingRewards: 0,
       performanceFee: 10, totalShares: 0, lastCompoundTime: 0,
-      totalFeesCollected: 0, treasuryMUSDValue: 0, treasuryAPY: 5,
+      totalUsers: 0, totalFeesCollected: 0, treasuryMUSDValue: 0, treasuryAPY: 5,
       isLoading: true, isError: false, source: "loading",
     };
   }
@@ -47,11 +49,12 @@ export function useVaultStats(): VaultStats {
     const apiFees = api.data?.totalFeesCollected ?? 0;
     return {
       tvl:              onChain.tvl,
-      projectedAPR:     78,
+      projectedAPR:     api.data?.projectedAPR ?? 78,
       pendingRewards:   onChain.pendingRewards  ?? 0,
       performanceFee:   onChain.performanceFee  ?? 10,
       totalShares:      onChain.totalShares     ?? 0,
       lastCompoundTime: onChain.lastCompoundTime ?? 0,
+      totalUsers:       api.data?.totalUsers    ?? 0,
       totalFeesCollected: onChainFees > 0 ? onChainFees : apiFees,
       treasuryMUSDValue: api.data?.treasuryMUSDValue ?? 0,
       treasuryAPY:       api.data?.treasuryAPY ?? 5,
@@ -65,14 +68,15 @@ export function useVaultStats(): VaultStats {
   if (api.data) {
     return {
       tvl:              api.data.tvl,
-      projectedAPR:     78,
+      projectedAPR:     api.data.projectedAPR,
       pendingRewards:   0,
       performanceFee:   api.data.performanceFee,
       totalShares:      api.data.totalShares,
       lastCompoundTime: api.data.lastCompoundTime,
+      totalUsers:       api.data.totalUsers,
       totalFeesCollected: api.data.totalFeesCollected ?? 0,
-      treasuryMUSDValue:  api.data.treasuryMUSDValue  ?? 0,
-      treasuryAPY:        api.data.treasuryAPY        ?? 5,
+      treasuryMUSDValue:  api.data.treasuryMUSDValue,
+      treasuryAPY:        api.data.treasuryAPY,
       isLoading:        false,
       isError:          false,
       source:           api.data.source === "mock" ? "mock" : "api",
@@ -88,6 +92,7 @@ export function useVaultStats(): VaultStats {
     performanceFee:  10,
     totalShares:     15420,
     lastCompoundTime: 0,
+    totalUsers:      887,
     totalFeesCollected: 34_600,
     treasuryMUSDValue:  12_300,
     treasuryAPY:        5,

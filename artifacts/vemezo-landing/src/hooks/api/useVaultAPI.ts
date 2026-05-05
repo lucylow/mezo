@@ -25,6 +25,23 @@ function formatWei(value: unknown): number {
   return Number(formatUnits(safeBigInt(value), 18));
 }
 
+/**
+ * Compute projected APR from the most recent daily metric.
+ * APR = (dailyRewards / tvl) × 365 × 100.
+ * Falls back to the provided default when data is insufficient.
+ */
+function computeAPR(
+  metrics: Array<{ tvl: unknown; dailyRewards: unknown }>,
+  fallback: number,
+): number {
+  const latest = metrics[0];
+  if (!latest) return fallback;
+  const tvl = formatWei(latest.tvl);
+  const dailyRewards = formatWei(latest.dailyRewards);
+  if (tvl <= 0 || dailyRewards <= 0) return fallback;
+  return Math.round((dailyRewards / tvl) * 365 * 100);
+}
+
 // ── Hooks ─────────────────────────────────────────────────────────────────────
 
 /** Vault-level metrics from the Express API (backed by Goldsky or mock). */
@@ -37,6 +54,8 @@ export function useVaultAPIStats() {
     select: (res) => {
       const v = res.data?.vault;
       if (!v) return null;
+      const metrics: Array<{ tvl: unknown; dailyRewards: unknown; totalUsers?: unknown }> =
+        res.data.dailyMetrics ?? [];
       return {
         tvl:              formatWei(v.totalUnderlying),
         totalShares:      formatWei(v.totalShares),
@@ -45,14 +64,16 @@ export function useVaultAPIStats() {
         totalCompounded:  formatWei(v.totalCompounded),
         totalFeesCollected: formatWei(v.totalFeesCollected),
         lastCompoundTime: Number(v.lastCompoundTime ?? 0),
-        dailyMetrics:     res.data.dailyMetrics ?? [],
+        dailyMetrics:     metrics,
+        projectedAPR:     computeAPR(metrics, 78),
+        totalUsers:       Number(metrics[0]?.totalUsers ?? 0),
         treasuryMUSDValue: typeof res.data?.treasuryMUSDValue === "number"
           ? res.data.treasuryMUSDValue
-          : 12_300,
+          : 0,
         treasuryAPY: typeof res.data?.treasuryAPY === "number"
           ? res.data.treasuryAPY
-          : 5,
-        source:           res.source ?? "api",
+          : 0,
+        source: res.source ?? "api",
       };
     },
   });

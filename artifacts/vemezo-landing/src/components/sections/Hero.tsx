@@ -3,8 +3,10 @@ import { Button } from "@/components/ui/button";
 import { SiBitcoin } from "react-icons/si";
 import { ArrowRight, Terminal } from "lucide-react";
 import heroBg from "@/assets/hero-bg.png";
+import { useEpochTimer } from "@/hooks/useEpochTimer";
 
 export function Hero() {
+  const epoch = useEpochTimer();
   return (
     <section className="relative min-h-[90vh] flex items-center justify-center overflow-hidden border-b border-border/50 pt-20">
       {/* Background Image & Overlay */}
@@ -29,7 +31,7 @@ export function Hero() {
             className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/50 border border-border text-sm font-mono text-muted-foreground mb-8"
           >
             <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-            <span>Epoch 42 Active &mdash; 3d 14h 22m remaining</span>
+            <span>Next Epoch &mdash; {epoch.compact} remaining</span>
           </motion.div>
 
           <motion.h1

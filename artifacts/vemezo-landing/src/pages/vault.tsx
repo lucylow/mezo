@@ -115,8 +115,8 @@ export default function Vault() {
   // ── Wallet-owned NFTs (on-chain; falls back gracefully) ─────────────────
   const { nfts: walletNFTs, isLoading: nftsLoading } = useVeMEZONFTs(address);
 
-  // Available NFTs: on-chain if deployed, else mock
-  const availableNFTs = deployed && walletNFTs.length > 0
+  // Available NFTs: on-chain when deployed, mock only in testnet preview mode
+  const availableNFTs = deployed
     ? walletNFTs
         .filter(n => !position.tokenIds.includes(n.tokenId.toString()))
         .map(n => ({
@@ -339,7 +339,9 @@ export default function Vault() {
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Estimated MEZO Output:</span>
                           <span className="font-medium font-mono">
-                            {withdrawAmount ? (Number(withdrawAmount) * 1.05).toFixed(2) : "0.00"}
+                            {withdrawAmount
+                              ? (Number(withdrawAmount) * (stats.tvl / Math.max(stats.totalShares, 1))).toFixed(2)
+                              : "0.00"}
                           </span>
                         </div>
                         <div className="flex justify-between text-sm">

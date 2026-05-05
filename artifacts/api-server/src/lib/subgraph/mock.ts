@@ -26,6 +26,7 @@ export function mockVaultStats() {
       tvl: String(BigInt("3900000000000000000000000") + BigInt(i) * BigInt("50000000000000000000000")),
       dailyRewards: String(BigInt("8500000000000000000000") + BigInt(i) * BigInt("500000000000000000000")),
       dailyFees: String(BigInt("850000000000000000000") + BigInt(i) * BigInt("50000000000000000000")),
+      totalUsers: 800 + i * 15,
     })),
   };
 }
