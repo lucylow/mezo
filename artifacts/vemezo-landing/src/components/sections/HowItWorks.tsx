@@ -5,22 +5,22 @@ const steps = [
   {
     num: "01",
     title: "Deposit once",
-    desc: "Lock your BTC or MEZO in the trustless veMEZO auto-compounder smart contract.",
+    desc: "Deposit your veMEZO NFTs into the trustless vault contract. Receive fungible vault shares (vveMEZO) proportional to the underlying MEZO value of your position.",
   },
   {
     num: "02",
     title: "Epochs roll over",
-    desc: "Every week, the protocol evaluates the optimal time to claim governance and staking rewards.",
+    desc: "Every Thursday at 00:05 UTC the keeper bot claims all rebase rewards and gauge incentives across the entire pooled veMEZO position. Gas is socialized across all depositors.",
   },
   {
     num: "03",
     title: "Auto-reinvest",
-    desc: "Rewards are automatically swapped and reinvested back into your core position.",
+    desc: "Claimed MEZO is immediately re-locked as new veMEZO NFTs at the maximum 4-year duration, maintaining peak voting weight and full 5× boost eligibility — every single epoch.",
   },
   {
     num: "04",
     title: "Watch it grow",
-    desc: "Your underlying position grows exponentially without you ever paying a single gas fee for claiming.",
+    desc: "Each vault share represents more underlying MEZO as epochs accumulate. Withdraw at any time and receive your proportional share plus all compounded yield, minus the 10% MUSD performance fee.",
   },
 ];
 
@@ -29,7 +29,7 @@ export function HowItWorks() {
     <section className="py-32 border-b border-border/50 bg-background">
       <div className="container mx-auto px-4 md:px-6">
         <div className="max-w-2xl mb-16">
-          <motion.h2 
+          <motion.h2
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
@@ -37,14 +37,14 @@ export function HowItWorks() {
           >
             The Protocol Engine
           </motion.h2>
-          <motion.p 
+          <motion.p
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ delay: 0.1 }}
             className="text-muted-foreground font-mono text-lg"
           >
-            Yield shouldn't be a part-time job. Our smart contracts execute complex multi-step reinvestment strategies autonomously.
+            Yield shouldn't be a part-time job. Our keeper bot executes the full veMEZO optimization loop — rebase claims, gauge voting, and max-lock extensions — every epoch, automatically.
           </motion.p>
         </div>
 

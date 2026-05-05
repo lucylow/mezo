@@ -1,26 +1,26 @@
 import { motion } from "framer-motion";
-import { ShieldCheck, Cpu, Coins, KeyRound } from "lucide-react";
+import { RefreshCw, Zap, Target, Coins } from "lucide-react";
 
 const features = [
   {
-    title: "Non-Custodial Design",
-    desc: "Your keys, your yield. The auto-compounder is governed by immutable smart contracts. You can withdraw your principal and yield at any time.",
-    icon: KeyRound,
+    title: "Auto-Max-Lock Extension",
+    desc: "Every Thursday epoch the keeper re-extends all pooled veMEZO NFTs to the full 4-year lock duration. Manually managed positions lose voting weight as locks decay — the vault never lets yours slip.",
+    icon: RefreshCw,
   },
   {
-    title: "Zero-Gas Claiming",
-    desc: "Save hundreds of dollars a year in transaction fees. The protocol socializes the gas cost of claiming and reinvesting across all vault participants.",
+    title: "100% Rebase Capture",
+    desc: "The dynamic rebase mechanism pays anti-dilution rewards every epoch — up to 50% of weekly emissions when lock rates are low. Missing a single claim forfeits that week permanently. Automation ensures 100% capture.",
+    icon: Zap,
+  },
+  {
+    title: "Gauge Vote Optimization",
+    desc: "Aggregated veMEZO weight is algorithmically directed to the highest-incentive active veBTC gauges each epoch — capturing matching-market alpha that no individual holder can replicate at scale.",
+    icon: Target,
+  },
+  {
+    title: "MUSD Performance Fee",
+    desc: "The 10% performance fee settles in MUSD — Mezo's Bitcoin-backed stablecoin — not MEZO. No tokens are ever sold to cover fees, so the vault contributes zero sell pressure on the coordination asset.",
     icon: Coins,
-  },
-  {
-    title: "MEV-Protected Routing",
-    desc: "When swapping reward tokens back to BTC, our contracts route through private mempools to protect your yield from front-running bots.",
-    icon: Cpu,
-  },
-  {
-    title: "Audited & Trustless",
-    desc: "Codebase audited by top-tier security firms. No admin keys can access user funds. The protocol functions purely on mathematical parameters.",
-    icon: ShieldCheck,
   },
 ];
 
@@ -30,9 +30,9 @@ export function Features() {
       <div className="container mx-auto px-4 md:px-6">
         <div className="flex flex-col md:flex-row justify-between items-end mb-16 gap-8">
           <div className="max-w-2xl">
-            <h2 className="text-3xl md:text-5xl font-bold mb-6">Engineered for Maximalists</h2>
+            <h2 className="text-3xl md:text-5xl font-bold mb-6">Built Around veMEZO Mechanics</h2>
             <p className="text-muted-foreground font-mono text-lg">
-              We built veMEZO.fi because we wanted a better way to handle yield on the Bitcoin Layer. No compromises on security.
+              Every feature maps directly to a structural advantage in Mezo's dual-token ve-system. No generic DeFi primitives — purpose-built for veMEZO maximization.
             </p>
           </div>
         </div>

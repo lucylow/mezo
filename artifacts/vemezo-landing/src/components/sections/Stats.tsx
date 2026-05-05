@@ -1,30 +1,30 @@
 import { motion } from "framer-motion";
-import { Activity, Lock, RefreshCw, Layers } from "lucide-react";
+import { Zap, Clock, Users, TrendingUp } from "lucide-react";
 
 const stats = [
   {
-    label: "Total Value Locked",
-    value: "$42.8M",
-    sub: "+12.4% this week",
-    icon: Layers,
+    label: "Total MEZO Supply",
+    value: "1B",
+    sub: "40% community allocation — the largest single bucket",
+    icon: TrendingUp,
   },
   {
-    label: "Current APY Boost",
-    value: "145%",
-    sub: "Compared to manual claiming",
-    icon: Activity,
+    label: "Max veBTC Boost",
+    value: "5×",
+    sub: "When veMEZO share equals or exceeds veBTC share",
+    icon: Zap,
   },
   {
-    label: "Active Vaults",
-    value: "1,204",
-    sub: "Depositors globally",
-    icon: Lock,
+    label: "Phase 1 Lock Rate",
+    value: "13%",
+    sub: "~1,540 veMEZO positions from 11,845 eligible addresses",
+    icon: Users,
   },
   {
-    label: "Total Yield Generated",
-    value: "245 BTC",
-    sub: "Auto-compounded",
-    icon: RefreshCw,
+    label: "Max Lock Duration",
+    value: "4 yrs",
+    sub: "1,456 days — auto-extended every epoch by the vault",
+    icon: Clock,
   },
 ];
 
@@ -32,7 +32,7 @@ export function Stats() {
   return (
     <section className="py-24 border-b border-border/50 relative overflow-hidden bg-secondary/10">
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]" />
-      
+
       <div className="container relative z-10 mx-auto px-4 md:px-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {stats.map((stat, i) => (
