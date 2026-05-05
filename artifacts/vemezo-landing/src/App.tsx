@@ -22,6 +22,7 @@ import Analytics    from "@/pages/analytics";
 import Leaderboard  from "@/pages/leaderboard";
 import History      from "@/pages/history";
 import Settings     from "@/pages/settings";
+import Mats         from "@/pages/mats";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -54,6 +55,7 @@ function Router() {
       <Route path="/leaderboard"><DApp><Leaderboard /></DApp>   </Route>
       <Route path="/history">    <DApp><History /></DApp>       </Route>
       <Route path="/settings">   <DApp><Settings /></DApp>      </Route>
+      <Route path="/mats">       <DApp><Mats /></DApp>          </Route>
 
       <Route component={NotFound} />
     </Switch>

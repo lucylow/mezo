@@ -5,6 +5,7 @@ import { HowItWorks } from "@/components/sections/HowItWorks";
 import { Features } from "@/components/sections/Features";
 import { YieldChart } from "@/components/sections/YieldChart";
 import { Security } from "@/components/sections/Security";
+import { MatsSection } from "@/components/sections/MatsSection";
 import { CallToAction } from "@/components/sections/CallToAction";
 import { Footer } from "@/components/sections/Footer";
 
@@ -19,6 +20,7 @@ export default function Home() {
         <Features />
         <YieldChart />
         <Security />
+        <MatsSection />
         <CallToAction />
       </main>
       <Footer />
